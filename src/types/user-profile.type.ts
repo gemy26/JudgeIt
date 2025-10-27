@@ -1,7 +1,9 @@
+import { SolvedProblemResult } from './solved-problem-result.type';
+
 export interface UserProfile{
-  name: string
+  username: string
   email: string
   solvedProblemsCount: number
   submissionsCount: number
-  recentAcProblems: string []
+  recentAcProblems: SolvedProblemResult []
 }

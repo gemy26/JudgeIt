@@ -3,7 +3,9 @@ import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
 import { UsersRepository } from './users.repository';
 import { PrismaService } from '../prisma/prisma.service';
+import { SubmissionsModule } from '../submissions/submissions.module';
 @Module({
+  imports: [SubmissionsModule],
   providers: [UsersService, UsersRepository, PrismaService],
   controllers: [UsersController],
   exports: [UsersService, UsersRepository],

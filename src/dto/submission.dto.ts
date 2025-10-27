@@ -10,5 +10,5 @@ export class SubmissionDto {
   sourceCode: string;
 
   @IsString()
-  language: string; //should be an enum or env
+  language: string; //TODO: should be an enum or env
 }

@@ -4,10 +4,13 @@ import { Account, User } from '@prisma/client';
 import { GoogleProfileDto } from 'src/dto';
 import { UserProfile } from '../types';
 import { getId } from '../common/utils';
+import { SubmissionsService } from '../submissions/submissions.service';
 
 @Injectable()
 export class UsersRepository {
-  constructor(private prisma: PrismaService) { }
+  constructor(private prisma: PrismaService,
+              private submissionsService: SubmissionsService
+  ) {}
 
   async createUser(email: string, username: string, password: string): Promise<User> {
      return this.prisma.user.create({
@@ -144,11 +147,23 @@ export class UsersRepository {
     });
   }
 
-  async getProfile(userId: string): Promise<UserProfile>{
+  async getProfile(userId: string): Promise<UserProfile> {
+    const id = parseInt(userId);
+
     const user = await this.findById(userId);
-    // TODO: Implement
-    return { } as UserProfile;
-    // TODO: get the fields from submissions module
+
+    const submissionsCount = await this.submissionsService.getSubmissionsCount(id);
+    const solvedProblems = await this.submissionsService.getSolvedProblems(id);
+    const solvedProblemsCount = solvedProblems.length;
+    const recentSolvedProblems = solvedProblems.slice(0, 10);
+
+    return {
+      username: user!.username,
+      email: user!.email,
+      submissionsCount,
+      solvedProblemsCount,
+      recentAcProblems: recentSolvedProblems,
+    };
   }
 
 }
