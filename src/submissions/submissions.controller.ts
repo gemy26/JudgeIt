@@ -12,6 +12,8 @@ export class SubmissionsController {
   async submit(@Body() dto: SubmissionDto, @GetCurrentUserId() id: string){
     // TODO: implement the Submit logic  i have 2 options 1 - return submission id and then the client route and ask for that submission details
     // 2 - wait until judging finish and return response
+
+    return this.submissionsService.addSubmission(dto, parseInt(id));
   }
 
   @Get('/user-submissions')
