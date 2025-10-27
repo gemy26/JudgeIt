@@ -79,8 +79,8 @@ model Submission {
   created_at                DateTime      @default(now())
 
   user                      User          @relation(fields: [user_id], references: [id])
-  problem        Problem     @relation(fields: [problem_id], references: [id])
-  results       SubmissionResult[]
+  problem                   Problem       @relation(fields: [problem_id], references: [id])
+  results                 SubmissionResult[]
 }
 
 model SubmissionResult {
