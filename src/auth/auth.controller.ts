@@ -1,13 +1,14 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { AuthDto } from '../dto/auth.dto';
 import { Tokens } from '../types';
-import { GetCurrentUser, GetCurrentUserId, Public, SKIP_KEY, SkipAuth } from '../common/decorators';
-import { AtGuard, RtGuard } from '../common/guards';
+import { GetCurrentUser, GetCurrentUserId, Public, SkipAuth } from '../common/decorators';
+import { AtGuard, RtGuard, RolesGuard } from '../common/guards';
 import { Roles } from '../common/decorators';
 import { Role } from '../common/enums';
 import { AuthGuard } from '@nestjs/passport';
+import { ResetPasswordDto, AuthDto, ChangePasswordDto } from '../dto';
 
+// @UseGuards(AtGuard, RolesGuard)
 @Controller('auth')
 export class AuthController {
   constructor(private authService: AuthService) { }
@@ -26,7 +27,7 @@ export class AuthController {
     return this.authService.signinLocal(dto);
   }
 
-  @UseGuards(AtGuard)
+  // @UseGuards(AtGuard)
   @HttpCode(HttpStatus.OK)
   @Post('/local/logout')
   logout(@GetCurrentUserId() userId: string) {
@@ -79,4 +80,30 @@ export class AuthController {
     return tokens;
   }
 
+  @SkipAuth()
+  @Public()
+  @Get('/verify-reset-token')
+  async verifyResetToken(@Query() token: string){
+    return this.authService.validateResetToken(token);
+  }
+
+  @SkipAuth()
+  @Public()
+  @Get('/reset-password')
+  async resetPassword(@Body() body: ResetPasswordDto){
+    return this.authService.reserPassword(body);
+  }
+
+  @SkipAuth()
+  @Public()
+  @Get('/forget-password')
+  async forgetPassword(@Body() body){
+    return this.authService.sendPasswordResetEmail(body?.email);
+  }
+
+  @Post('/change-password')
+  async changePassword(@GetCurrentUserId() id: string, @Body() body: ChangePasswordDto){
+    console.log('Controller: changePassword userId =>', id);
+    return this.authService.changePassword(id, body);
+  }
 }

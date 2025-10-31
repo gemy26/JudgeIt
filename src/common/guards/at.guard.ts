@@ -20,10 +20,12 @@ export class AtGuard extends AuthGuard('jwt'){
             context.getHandler(),
             context.getClass()
         ])
-        
+
         if(isPublic || skipAuth) return true;
 
         console.log("AT GUARD");
+        const req = context.switchToHttp().getRequest();
+        console.log('Authorization Header:', req.headers.authorization);
 
         return super.canActivate(context);
     }

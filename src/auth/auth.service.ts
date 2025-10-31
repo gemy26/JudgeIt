@@ -1,17 +1,26 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
-import { GoogleProfileDto, AuthDto } from '../dto';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { GoogleProfileDto, AuthDto, MailDto, ResetPasswordDto, ChangePasswordDto } from '../dto';
 import { UsersService } from 'src/users/users.service';
 import * as argon2 from 'argon2'
 import { Tokens } from '../types';
 import { JwtService } from '@nestjs/jwt';
 import { Role } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
+import { randomBytes } from 'node:crypto';
+import { PasswordResetRepository } from './password-reset.repository';
+import { addMinutes } from 'date-fns';
+import { EmailService } from '../email/email.service';
+import * as crypto from 'crypto';
+
 
 @Injectable()
 export class AuthService {
-  constructor(private usersService: UsersService,
-              private jwtService: JwtService,
-              private config: ConfigService,
+  constructor(
+    private usersService: UsersService,
+    private passwordResetRepository: PasswordResetRepository,
+    private emailService: EmailService,
+    private jwtService: JwtService,
+    private config: ConfigService,
   ) { }
 
   async updateRtHash(userId: number, rt: string) {
@@ -164,6 +173,121 @@ export class AuthService {
       accessToken,
       refreshToken,
     );
+  }
+
+
+  async changePassword(id: string, dto: ChangePasswordDto) {
+    const { oldPass, newPass } = dto;
+
+    const user = await this.usersService.findById(id);
+    if (!user) {
+      throw new NotFoundException("User not found");
+    }
+    const email = user.email;
+    const hasAccount = await this.usersService.hasAccount(email);
+
+    if (hasAccount) {
+      throw new BadRequestException("User is registered with google");
+    }
+
+    if(!user.hash){
+      throw new BadRequestException('User has no password hash');
+    }
+
+    const isValidPass = await argon2.verify(user.hash, oldPass);
+    if (!isValidPass) {
+      throw new BadRequestException("Incorrect old password");
+    }
+
+    const newPassHash = await argon2.hash(newPass);
+    return await this.usersService.changePass(user.id, newPassHash);
+  }
+
+  async sendPasswordResetEmail(email: string) { //forget password
+    const user = await this.usersService.findByEmail(email);
+    if(!user) {
+      throw new NotFoundException("User not found");
+    }
+
+    console.log(user);
+
+    const {token, hashedToken} = await this.generateResetToken();
+
+    try{
+      console.log('Creating reset token for userId:', typeof user.id);
+      await this.passwordResetRepository.createPasswordResetToken(user.id, hashedToken, addMinutes(new Date(), 15));
+    }catch(err){
+      // throw new BadRequestException(err.message);
+      console.error('ERROR STACK:', err.stack);
+    }
+
+    const url = `http://localhost:3000/auth/reset-password/?token=${token}`;
+
+    const resetPasswordDto: MailDto = {
+      to: email,
+      subject: "Password Reset",
+      templateName: "reset_password",
+      templateData: {username: user.username, reset_link: url}
+    };
+
+    await this.emailService.sendMail(resetPasswordDto);
+
+    console.log("Reset email sent");
+  }
+
+  async reserPassword(dto: ResetPasswordDto) {
+
+    const {token, newPassword} = dto;
+    const { userId, tokenId } = await this.validateResetToken(token);
+
+    if (newPassword.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters');
+    }
+
+    const hashedPassword = await argon2.hash(newPassword);
+
+    await this.usersService.changePass(userId, hashedPassword);
+
+    await this.passwordResetRepository.markTokenUsed(tokenId);
+
+    console.log("Reset email success");
+
+    return {
+      success: true,
+      message: 'Password reset successfully'
+    };
+  }
+
+  async validateResetToken(token: string){
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(token)
+      .digest('hex');
+
+    const tokenRecord = await this.passwordResetRepository.getPasswordResetToken(hashedToken);
+    if (!tokenRecord) {
+      throw new ForbiddenException("Invalid or expired token");
+    }
+
+    if (tokenRecord.used) {
+      throw new ForbiddenException("Token has already been used");
+    }
+
+    if (tokenRecord.expiresAt.getTime() < Date.now()) {
+      throw new ForbiddenException("Token has expired");
+    }
+
+    return {
+      userId: tokenRecord.userId,
+      tokenId: tokenRecord.id
+    };
+
+  }
+
+  async generateResetToken() {
+    const token = randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+    return { token, hashedToken };
   }
 
 }

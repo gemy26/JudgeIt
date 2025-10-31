@@ -24,7 +24,8 @@ model User {
   role              Role[]                @default([USER])
   accounts          Account[]
   problems          Problem[]            @relation("ProblemCreator")
-  submissions   Submission[]
+  submissions       Submission[]
+  passwordResetToken PasswordResetToken[]
   @@map("users")
 }
 
@@ -93,3 +94,18 @@ model SubmissionResult {
   memoryUsed     Int?
   createdAt      DateTime      @default(now())
 }
+
+model PasswordResetToken {
+  id          Int       @id @default(autoincrement())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      Int
+  tokenHash   String
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+  used        Boolean   @default(false)
+  requestIp   String?
+  userAgent   String?
+
+  @@index([userId])
+  @@index([expiresAt])
+  }

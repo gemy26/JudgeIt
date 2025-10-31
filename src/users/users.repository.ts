@@ -24,7 +24,7 @@ export class UsersRepository {
 
   async findByEmail(email: string): Promise<User | null> {
     return this.prisma.user.findUnique({
-      where: { email },
+      where: { email: email },
     });
   }
 
@@ -165,5 +165,33 @@ export class UsersRepository {
       recentAcProblems: recentSolvedProblems,
     };
   }
+
+  async hasAccount(email: string): Promise<boolean>{
+    const user = await this.prisma.user.findUnique({
+      where:{
+        email: email
+      },
+      include: {
+        accounts: true
+      }
+    });
+
+    if(user?.accounts && user?.accounts.length){
+      return true;
+    }
+    return false;
+  }
+
+  async changePassword(userId: number, newPass: string){
+    return this.prisma.user.update({
+      where:{
+        id: userId
+      },
+      data:{
+        hash: newPass
+      }
+    });
+  }
+
 
 }

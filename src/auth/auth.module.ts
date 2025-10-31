@@ -5,9 +5,12 @@ import { UsersService } from 'src/users/users.service';
 import { UsersModule } from 'src/users/users.module';
 import { AtStrategy, RtStrategy, googleStrategy } from './strategies';
 import { JwtModule } from '@nestjs/jwt';
+import { EmailModule } from '../email/email.module';
+import { PasswordResetRepository } from './password-reset.repository';
+import { PrismaService } from '../prisma/prisma.service';
 @Module({
-  imports: [UsersModule, JwtModule.register({})],
-  providers: [AuthService, UsersService, AtStrategy, RtStrategy, googleStrategy],
+  imports: [UsersModule, JwtModule.register({}), EmailModule],
+  providers: [AuthService, UsersService, AtStrategy, RtStrategy, googleStrategy, PasswordResetRepository, PrismaService],
   controllers: [AuthController]
 })
 

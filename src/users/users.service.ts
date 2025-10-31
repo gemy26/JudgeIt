@@ -33,6 +33,10 @@ export class UsersService {
   }
 
   async findByEmail(email: string) {
+    if(!email)
+    {
+      throw new BadRequestException("Email doesn't exist");
+    }
     return this.usersRepo.findByEmail(email);
   }
 
@@ -96,5 +100,13 @@ export class UsersService {
 
   async getProfile(userId: string){
     return this.usersRepo.getProfile(userId);
+  }
+
+  async hasAccount(email: string){
+    return this.usersRepo.hasAccount(email);
+  }
+
+  async changePass(id: number, newPass: string){
+    return this.usersRepo.changePassword(id, newPass);
   }
 }
