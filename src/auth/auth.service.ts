@@ -80,6 +80,9 @@ export class AuthService {
   async signinLocal(dto: AuthDto): Promise<Tokens> {
     let { email, password } = dto;
     const user = await this.usersService.findUser(dto);
+    if(!user){
+      throw new ForbiddenException('User not found');
+    }
     if (!user.hash) {
       throw new ForbiddenException(
         'This account uses OAuth login. Please sign in with Google.',

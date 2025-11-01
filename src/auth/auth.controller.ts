@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { Tokens } from '../types';
 import { GetCurrentUser, GetCurrentUserId, Public, SkipAuth } from '../common/decorators';
@@ -7,6 +7,7 @@ import { Roles } from '../common/decorators';
 import { Role } from '../common/enums';
 import { AuthGuard } from '@nestjs/passport';
 import { ResetPasswordDto, AuthDto, ChangePasswordDto } from '../dto';
+import type { Response } from 'express';
 
 // @UseGuards(AtGuard, RolesGuard)
 @Controller('auth')
@@ -16,21 +17,53 @@ export class AuthController {
   @Public()
   @HttpCode(HttpStatus.CREATED)
   @Post('/local/signup')
-  signupLocal(@Body() dto: AuthDto): Promise<Tokens> {
-    return this.authService.signupLocal(dto);
+  async signupLocal(@Body() dto: AuthDto, @Res() res: Response): Promise<void> {
+    const tokens: Tokens = await this.authService.signupLocal(dto);
+
+     res.cookie('Authentication', tokens.access_token, {
+      httpOnly: true,
+      secure: false, // true in production
+      sameSite: 'lax',
+      maxAge: 15 * 60 * 1000, // 15 min
+    });
+
+    res.cookie('Refresh', tokens.refresh_token, {
+      httpOnly: true,
+      secure: false, // true in production
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, //7 days
+    });
+
+    res.json(tokens);
   }
 
   @Public()
   @Post('/local/signin')
   @HttpCode(HttpStatus.OK)
-  signinLocal(@Body() dto: AuthDto) {
-    return this.authService.signinLocal(dto);
+  async signinLocal(@Body() dto: AuthDto, @Res() res: Response): Promise<void> {
+    const tokens: Tokens = await this.authService.signinLocal(dto);
+
+    res.cookie('Authentication', tokens.access_token, {
+      httpOnly: true,
+      secure: false, // true in production
+      sameSite: 'lax',
+      maxAge: 15 * 60 * 1000, // 15 min
+    });
+
+    res.cookie('Refresh', tokens.refresh_token, {
+      httpOnly: true,
+      secure: false, // true in production
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, //7 days
+    });
+
+    res.json(tokens);
   }
 
   // @UseGuards(AtGuard)
   @HttpCode(HttpStatus.OK)
   @Post('/local/logout')
-  logout(@GetCurrentUserId() userId: string) {
+  async logout(@GetCurrentUserId() userId: string) {
     console.log('Here')
     return this.authService.logout(parseInt(userId));
   }
@@ -41,10 +74,30 @@ export class AuthController {
   @UseGuards(RtGuard)
   @Post('/local/refresh')
   @HttpCode(HttpStatus.OK)
-  refreshTokens(@GetCurrentUser('sub') sub: string, @GetCurrentUser('refreshToken') refreshToken: string) {
+  async refreshTokens(
+    @GetCurrentUser('sub') sub: string,
+    @GetCurrentUser('refreshToken') refreshToken: string,
+    @Res() res: Response
+  ): Promise<void> {
     console.log("Refresh uri, userId => ", sub)
     console.log("Refresh uri, refreshToken => ", refreshToken)
-    return this.authService.refreshTokens(sub, refreshToken);
+    const tokens: Tokens = await this.authService.refreshTokens(sub, refreshToken);
+    
+    res.cookie('Authentication', tokens.access_token, {
+      httpOnly: true,
+      secure: false, // true in production
+      sameSite: 'lax',
+      maxAge: 15 * 60 * 1000, // 15 min
+    });
+
+    res.cookie('Refresh', tokens.refresh_token, {
+      httpOnly: true,
+      secure: false, // true in production
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, //7 days
+    });
+
+    res.json(tokens);
   }
 
   @Roles(Role.ADMIN)
@@ -64,8 +117,9 @@ export class AuthController {
   async googleAuthCallback(
     @GetCurrentUser('id') id: string,
     @GetCurrentUser('email') email: string,
-    @GetCurrentUser('role') role: []
-  ): Promise<Tokens> {
+    @GetCurrentUser('role') role: [],
+    @Res() res: Response
+  ): Promise<void> {
     const userId = parseInt(id);
     const tokens: Tokens = await this.authService.getTokens(
       userId,
@@ -77,7 +131,21 @@ export class AuthController {
     console.log('callback url, Email: ', email);
     await this.authService.updateRtHash(userId, tokens.refresh_token);
 
-    return tokens;
+    res.cookie('Authentication', tokens.access_token, {
+      httpOnly: true,
+      secure: false, // true in production
+      sameSite: 'lax',
+      maxAge: 15 * 60 * 1000, // 15 min
+    });
+
+    res.cookie('Refresh', tokens.refresh_token, {
+      httpOnly: true,
+      secure: false, // true in production
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, //7 days
+    });
+
+    res.json(tokens);
   }
 
   @SkipAuth()
