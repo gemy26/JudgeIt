@@ -67,10 +67,6 @@ export class AuthService {
 
     const newUserDto = { ...dto, password: hashedPassword };
     const user = await this.usersService.createUser(newUserDto);
-
-    // Generate the jwt access token and refresh token and save in cookies (or passport handle that) and return an new object with all that data
-    // may use interceptor to set jwt data and delete the password from response and use the current response but its not good at all
-
     console.log("SignUp  user => ", user)
     const tokens: Tokens = await this.getTokens(user.id, user.email, user.role);
     await this.updateRtHash(user.id, tokens.refresh_token);
@@ -83,13 +79,14 @@ export class AuthService {
     if(!user){
       throw new ForbiddenException('User not found');
     }
-    if (!user.hash) {
+    const hasOAuthAccount = await this.usersService.hasAccount(email);
+    if (!user.hash && !hasOAuthAccount) {
       throw new ForbiddenException(
         'This account uses OAuth login. Please sign in with Google.',
       );
     }
 
-    const IsValidPassword = await argon2.verify(user.hash, password);
+    const IsValidPassword = await argon2.verify(user.hash!, password);
     if (!IsValidPassword) {
       throw new ConflictException("Not valid credintial");
     }
@@ -119,7 +116,7 @@ export class AuthService {
     const rtMatches = await argon2.verify(user.hashedRt, rt);
     if (!rtMatches) {
       console.log('not matches')
-      throw new ForbiddenException('Access denied');
+      throw new ForbiddenException('Access denied, Refresh token does not match');
     }
 
     const tokens: Tokens = await this.getTokens(user.id, user.email, user.role);
@@ -238,7 +235,7 @@ export class AuthService {
     console.log("Reset email sent");
   }
 
-  async reserPassword(dto: ResetPasswordDto) {
+  async resetPassword(dto: ResetPasswordDto) {
 
     const {token, newPassword} = dto;
     const { userId, tokenId } = await this.validateResetToken(token);

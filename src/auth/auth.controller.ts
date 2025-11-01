@@ -159,7 +159,7 @@ export class AuthController {
   @Public()
   @Get('/reset-password')
   async resetPassword(@Body() body: ResetPasswordDto){
-    return this.authService.reserPassword(body);
+    return this.authService.resetPassword(body);
   }
 
   @SkipAuth()
