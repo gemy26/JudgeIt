@@ -3,9 +3,11 @@ import { KafkaService } from './kafka.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { KafkaConsumerService } from './kafkaConsumerService';
+import { ExecutionModule } from '../execution/execution.module';
 
 @Module({
   imports: [
+    ExecutionModule,
     ClientsModule.registerAsync([
       {
         name: 'KAFKA_SERVICE',
@@ -13,7 +15,7 @@ import { KafkaConsumerService } from './kafkaConsumerService';
         useFactory: async (configService: ConfigService) => {
           const brokers = configService
             .get<string>('KAFKA_BROKERS')!
-            ?.split(',') // convert "localhost:9092,localhost:9093" → ["localhost:9092", "localhost:9093"]
+            ?.split(',')
             .map(b => b.trim());
 
           return {
@@ -24,8 +26,7 @@ import { KafkaConsumerService } from './kafkaConsumerService';
                 brokers: brokers,
               },
               consumer: {
-                groupId:
-                  configService.get<string>('KAFKA_GROUP_ID')!,
+                groupId: `${configService.get<string>('KAFKA_GROUP_ID')!}-producer`,
               },
             },
           };
@@ -34,8 +35,8 @@ import { KafkaConsumerService } from './kafkaConsumerService';
       },
     ]),
   ],
-  providers: [KafkaService, KafkaConsumerService],
-  exports: [KafkaService, KafkaConsumerService],
-  controllers: [],
+  providers: [KafkaService],
+  exports: [KafkaService],
+  controllers: [KafkaConsumerService],
 })
 export class KafkaModule {}

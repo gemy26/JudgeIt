@@ -41,12 +41,13 @@ async function bootstrap() {
         brokers: brokers,
       },
       consumer: {
-        groupId: configService.get("KAFKA_GROUP_ID")!
-      }
+        groupId: configService.get("KAFKA_GROUP_ID")!,
+      },
     }
   });
 
   await app.startAllMicroservices();
+  console.log('Microservices started');
 
   // app.useGlobalPipes(
   //   new ValidationPipe({

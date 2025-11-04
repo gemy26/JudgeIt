@@ -9,6 +9,7 @@ import { EmailModule } from './email/email.module';
 import { APP_GUARD } from '@nestjs/core';
 import { AtGuard, RolesGuard } from './common/guards';
 import { KafkaModule } from './kafka/kafka.module';
+import { ExecutionModule } from './execution/execution.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { KafkaModule } from './kafka/kafka.module';
     ProblemsModule,
     EmailModule,
     KafkaModule,
+    ExecutionModule,
   ],
   controllers: [],
   providers: [
