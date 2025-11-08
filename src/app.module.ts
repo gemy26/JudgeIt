@@ -10,6 +10,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { AtGuard, RolesGuard } from './common/guards';
 import { KafkaModule } from './kafka/kafka.module';
 import { ExecutionModule } from './execution/execution.module';
+import { JudgeModule } from './judge/judge.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { ExecutionModule } from './execution/execution.module';
     EmailModule,
     KafkaModule,
     ExecutionModule,
+    JudgeModule,
   ],
   controllers: [],
   providers: [

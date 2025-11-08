@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ProblemsRepository } from './problems.repository';
 import { ProblemFilterDto } from 'src/dto';
+import { ProblemDetails } from '../types';
 
 @Injectable()
 export class ProblemsService {
@@ -17,4 +18,9 @@ export class ProblemsService {
   async getProblemBySlug(slug: string) {
     return this.problemsRepo.getProblemBySlug(slug);
   }
+
+  async getProblemDetails(problemId: number): Promise<ProblemDetails> {
+    return this.problemsRepo.getProblemDetails(problemId);
+  }
+
 }

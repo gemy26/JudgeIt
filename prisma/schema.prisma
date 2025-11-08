@@ -7,105 +7,102 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Role {
-  USER
-  ADMIN
-  MODERATOR
-}
-
 model User {
-  id                Int                   @id @default(autoincrement())
-  username          String                @unique()
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
-  email             String                @unique
-  hash              String?     
-  hashedRt          String?
-  role              Role[]                @default([USER])
-  accounts          Account[]
-  problems          Problem[]            @relation("ProblemCreator")
-  submissions       Submission[]
+  id                 Int                  @id @default(autoincrement())
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  email              String               @unique
+  hash               String?
+  hashedRt           String?
+  role               Role[]               @default([USER])
+  username           String               @unique
   passwordResetToken PasswordResetToken[]
+  problems           Problem[]            @relation("ProblemCreator")
+  submissions        Submission[]
+  accounts           Account[]
+
   @@map("users")
 }
 
 model Account {
   id                Int       @id @default(autoincrement())
   userId            Int
-  provider          String    // "google", "github", "discord", etc.
-  providerAccountId String    // The user's ID from the OAuth provider
-  accessToken       String?   @db.Text
-  refreshToken      String?   @db.Text
+  provider          String
+  providerAccountId String
+  accessToken       String?
+  refreshToken      String?
   expiresAt         DateTime?
   tokenType         String?
   scope             String?
-  idToken           String?   @db.Text
-  
+  idToken           String?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
-
   user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([provider, providerAccountId]) // Prevent duplicate provider accounts
+  @@unique([provider, providerAccountId])
   @@map("accounts")
 }
 
 model Problem {
-  id                  Int                   @id @default(autoincrement())
-  title               String   
-  slug                String                @unique()
-  description         String
-  difficulty          String
-  created_at          DateTime              @default(now())
-  // for S3
-  test_case_prefix    String?    
-
-  //for local storage
-  tests_dir_ref             String?    //like: tests/{slug}/
-
-  created_by          Int?        
-  creator             User?                @relation("ProblemCreator", fields: [created_by], references: [id])
-  submissions         Submission[]
+  id               Int          @id @default(autoincrement())
+  title            String
+  slug             String       @unique
+  description      String
+  difficulty       String
+  created_at       DateTime     @default(now())
+  test_case_prefix String?
+  tests_dir_ref    String?
+  created_by       Int?
+  memoryLimit      Int          @default(256)
+  stackLimit       Int?         @default(128)
+  timeLimit        Int          @default(2)
+  creator          User?        @relation("ProblemCreator", fields: [created_by], references: [id])
+  submissions      Submission[]
 }
 
 model Submission {
-  id                        Int           @id @default(autoincrement())
-  problem_id                Int
-  user_id                   Int
-  language                  String
-  source_code               String
-  verdicate                 String        @default("PENDING")
-  execution_time            Float?
-  memory_user               Int?
-  created_at                DateTime      @default(now())
-
-  user                      User          @relation(fields: [user_id], references: [id])
-  problem                   Problem       @relation(fields: [problem_id], references: [id])
-  results                 SubmissionResult[]
+  id             Int                @id @default(autoincrement())
+  problem_id     Int
+  user_id        Int
+  language       String
+  source_code    String
+  verdicate      String             @default("PENDING")
+  execution_time Float?
+  memory_user    Int?
+  created_at     DateTime           @default(now())
+  problem        Problem            @relation(fields: [problem_id], references: [id])
+  user           User               @relation(fields: [user_id], references: [id])
+  results        SubmissionResult[]
 }
 
 model SubmissionResult {
-  id             Int          @id @default(autoincrement())
-  submission     Submission   @relation(fields: [submissionId], references: [id])
-  submissionId   Int
-  testcaseName   String        // e.g. "input_1.txt"
-  verdict        String        // e.g. ACCEPTED, WRONG_ANSWER, TLE
-  executionTime  Float?
-  memoryUsed     Int?
-  createdAt      DateTime      @default(now())
+  id            Int        @id @default(autoincrement())
+  submissionId  Int
+  testcaseName  String
+  verdict       String
+  executionTime Float?
+  memoryUsed    Int?
+  createdAt     DateTime   @default(now())
+  submission    Submission @relation(fields: [submissionId], references: [id])
 }
 
 model PasswordResetToken {
-  id          Int       @id @default(autoincrement())
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId      Int
-  tokenHash   String
-  createdAt   DateTime  @default(now())
-  expiresAt   DateTime
-  used        Boolean   @default(false)
-  requestIp   String?
-  userAgent   String?
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  tokenHash String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  requestIp String?
+  userAgent String?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])
-  }
+}
+
+enum Role {
+  USER
+  ADMIN
+  MODERATOR
+}

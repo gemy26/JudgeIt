@@ -1,13 +1,17 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { KafkaService } from './kafka.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { KafkaConsumerService } from './kafkaConsumerService';
 import { ExecutionModule } from '../execution/execution.module';
+import { JudgeModule } from '../judge/judge.module';
+import { SubmissionsModule } from '../submissions/submissions.module';
 
 @Module({
   imports: [
     ExecutionModule,
+    forwardRef(() => JudgeModule),
+    forwardRef(() => SubmissionsModule),
     ClientsModule.registerAsync([
       {
         name: 'KAFKA_SERVICE',

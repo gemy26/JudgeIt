@@ -1,8 +1,11 @@
 import { Prisma } from "@prisma/client";
 import { ProblemFilterDto } from '../dto/';
 import { PrismaService } from "src/prisma/prisma.service";
-import { Problem } from "src/types";
+import { Problem, ProblemDetails } from 'src/types';
+import { NotFoundError } from 'rxjs';
+import { Injectable, NotFoundException } from '@nestjs/common';
 
+@Injectable()
 export class ProblemsRepository {
   constructor(private prisma: PrismaService) { }
 
@@ -57,5 +60,22 @@ export class ProblemsRepository {
       take: filter.limit,
       skip: filter.offset,
     });
+  }
+
+  async getProblemDetails(problemId: number): Promise<ProblemDetails>{
+    const problem = await this.prisma.problem.findUnique(
+      {
+        where: { id: problemId },
+      }
+    );
+    if (!problem) {
+      throw new NotFoundException(`Problem with id ${problemId} not found`);
+    }
+    const details: ProblemDetails = {
+      MemoryLimit: problem.memoryLimit,
+      TimeLimit: problem.timeLimit,
+    } ;
+
+    return details;
   }
 }

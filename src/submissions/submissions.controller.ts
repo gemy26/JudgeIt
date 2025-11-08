@@ -3,17 +3,37 @@ import { GetCurrentUserId } from '../common/decorators';
 import { SubmissionDto } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { SubmissionsService } from './submissions.service';
+import { KafkaService } from 'src/kafka/kafka.service';
+import { languages } from 'src/execution/language.config';
+import { SubmissionQueuedEvent } from 'src/types';
 
 @Controller('submissions')
 export class SubmissionsController {
-  constructor(private submissionsService: SubmissionsService) {}
+  constructor(
+    private submissionsService: SubmissionsService,
+    private kafkaService: KafkaService,
+  ) {}
 
   @Post('/submit')
   async submit(@Body() dto: SubmissionDto, @GetCurrentUserId() id: string){
-    // TODO: implement the Submit logic  i have 2 options 1 - return submission id and then the client route and ask for that submission details
-    // 2 - wait until judging finish and return response
 
-    return this.submissionsService.addSubmission(dto, parseInt(id));
+    console.log(id);
+
+    const submission = await this.submissionsService.addSubmission(dto, parseInt(id));
+
+    console.log("Submission:=> ", submission);
+
+    const queueEvent: SubmissionQueuedEvent = {
+      submissionId: submission.id,
+      code: dto.sourceCode,
+      problemId: submission.problem_id,
+      timestamp: new Date(),
+      userId: id,
+      language: submission.language as 'cpp' | 'python',
+    };
+
+    await this.kafkaService.sendMessage(queueEvent);
+    return submission;
   }
 
   @Get('/user-submissions')

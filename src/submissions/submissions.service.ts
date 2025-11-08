@@ -1,11 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { SubmissionsRepository } from './submissions.repository';
-import { SolvedProblemResult, SubmissionResponse } from '../types';
+import {
+  SolvedProblemResult,
+  SubmissionResponse,
+  SubmissionResult,
+} from '../types';
 import { SubmissionDto } from '../dto';
+import { SubmissionsResultsRepository } from './submissions-results.repository';
 
 @Injectable()
 export class SubmissionsService {
-  constructor(private submissionsRepo: SubmissionsRepository) {}
+  constructor(private submissionsRepo: SubmissionsRepository, private submissionsResultsRepo: SubmissionsResultsRepository) {}
 
   async addSubmission(submissionDto: SubmissionDto, userId: number){
     return this.submissionsRepo.addSubmission(submissionDto, userId);
@@ -36,6 +41,7 @@ export class SubmissionsService {
     return this.submissionsRepo.getsolvedProblemsCount(userId);
   }
 
-  // TODO: Add submission
-  // TODO: update submission (update verdicate | status)
+  async addSubmissionResults(submissionResults: SubmissionResult[]){
+    return this.submissionsResultsRepo.addSubmissionResults(submissionResults);
+  }
 }

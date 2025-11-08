@@ -7,6 +7,8 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: 1234
       POSTGRES_DB: OJ
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
@@ -15,6 +17,9 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_logs:/var/lib/zookeeper/log
 
   kafka:
     image: confluentinc/cp-kafka:7.4.0
@@ -31,6 +36,8 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    volumes:
+      - kafka_data:/var/lib/kafka/data
     depends_on:
       - zookeeper
 
@@ -45,4 +52,8 @@ services:
       - redis_data:/data
 
 volumes:
-  redis_data: {}
+  postgres_data:
+  zookeeper_data:
+  zookeeper_logs:
+  kafka_data:
+  redis_data:

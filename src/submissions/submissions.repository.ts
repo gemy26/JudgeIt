@@ -1,22 +1,26 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { SolvedProblemResult, SubmissionResponse } from '../types';
 import { SubmissionDto } from '../dto';
+import { Injectable } from '@nestjs/common';
+
+@Injectable()
 export class SubmissionsRepository {
   constructor(private prisma: PrismaService) {}
 
   async addSubmission(submissionDto: SubmissionDto, userId: number){
-    return this.prisma.submission.create({
+
+    return await this.prisma.submission.create({
       data: {
         user_id: userId,
         problem_id: submissionDto.problemId,
         language: submissionDto.language,
-        source_code: submissionDto.sourceCode
+        source_code: submissionDto.sourceCode,
       },
       include: {
         user: { select: { username: true } },
         problem: { select: { title: true, difficulty: true } },
-      }
-    })
+      },
+    });
   }
 
   async updateSubmission(submissionId: number, verdicate: string){

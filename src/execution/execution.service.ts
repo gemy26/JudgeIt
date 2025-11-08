@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { BoxManager } from './box.manager';
 import { ConfigService } from '@nestjs/config';
-import { ExecutionConfig, ExecutionResult } from '../types';
+import { ExecutionConfig, ExecutionResult, TestCase } from '../types';
 import { languages } from './language.config';
 import { join } from 'path';
 import { writeFile, readFile, unlink } from 'fs/promises';
@@ -26,6 +26,234 @@ export class ExecutionService {
   ) {
     this.logger.log('Loaded languages:', JSON.stringify(languages, null, 2));
   }
+
+
+  async executeBatch(
+    code: string,
+    language: 'cpp' | 'python',
+    testCases: TestCase[],
+    config: Partial<ExecutionConfig> = {},
+  ): Promise<ExecutionResult[]> {
+    const execConfig = { ...this.defaultConfig, ...config };
+
+    let retry = 5;
+    let boxId = await this.boxManager.acquireBoxId();
+    while (boxId === null && retry !== 0) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      boxId = await this.boxManager.acquireBoxId();
+      retry--;
+    }
+
+    if (boxId === null) {
+      this.logger.error('No available boxes - queue is full');
+      return testCases.map(tc => ({
+        testCaseName: tc.name,
+        success: false,
+        error: 'Server is busy. Please try again later.',
+        status: 'SE',
+      }));
+    }
+
+    try {
+      return await this.executeBatchInBox(boxId, code, language, testCases, execConfig);
+    } finally {
+      await this.boxManager.releaseBoxId(boxId);
+    }
+  }
+
+  private async executeBatchInBox(
+    boxId: number,
+    code: string,
+    language: string,
+    testCases: TestCase[],
+    config: ExecutionConfig,
+  ): Promise<ExecutionResult[]> {
+    this.logger.log(`executeBatchInBox called with ${testCases.length} test cases`);
+
+    const langConfig = languages[language];
+    if (!langConfig) {
+      this.logger.error(`Language config not found for: ${language}`);
+      return testCases.map(tc => ({
+        testCaseName: tc.name,
+        success: false,
+        error: `Unsupported language: ${language}`,
+        status: 'SE',
+      }));
+    }
+
+    let boxPath: string;
+    try {
+      boxPath = await this.initBox(boxId);
+      this.logger.log(`Box ${boxId} initialized at: ${boxPath}`);
+    } catch (error) {
+      this.logger.error(`Failed to init box ${boxId}:`, error);
+      return testCases.map(tc => ({
+        testCaseName: tc.name,
+        success: false,
+        error: 'Failed to initialize sandbox',
+        status: 'SE',
+      }));
+    }
+
+    try {
+      const sourceFile = `solution.${langConfig.extension}`;
+      const sourcePath = join(boxPath, 'box', sourceFile);
+
+      const sanitizedCode = this.sanitizeCode(code);
+      await writeFile(sourcePath, sanitizedCode);
+      this.logger.log(`Source code written to: ${sourcePath}`);
+
+      if (langConfig.run.needsCompilation) {
+        this.logger.log(`Starting compilation for box ${boxId}`);
+        const compileResult = await this.compile(boxId, sourceFile, langConfig.compile, boxPath);
+
+        if (!compileResult.success) {
+          // If compilation fails, return CE for all test cases
+          return testCases.map(tc => ({
+            testCaseName: tc.name,
+            success: false,
+            error: compileResult.error,
+            status: 'CE',
+          }));
+        }
+
+        try {
+          await execAsync(`sudo chmod +x ${boxPath}/box/solution`);
+          this.logger.log(`Made solution executable`);
+        } catch (e) {
+          this.logger.error(`Failed to chmod solution: ${e.message}`);
+        }
+      }
+
+      const results: ExecutionResult[] = [];
+      for (let i = 1; i <= testCases.length; i ++) {
+        const testCase = testCases[i - 1];
+        this.logger.log(`Executing test case: ${testCase.name}`);
+        const result = await this.executeTestCase(
+          boxId,
+          langConfig,
+          sourceFile,
+          testCase,
+          config,
+          boxPath,
+        );
+        results.push({
+          ...result
+        });
+      }
+
+      return results;
+    } catch (error) {
+      this.logger.error(`Batch execution error in box ${boxId}:`, error);
+      return testCases.map(tc => ({
+        testCaseName: tc.name,
+        success: false,
+        error: 'Internal execution error',
+        status: 'SE',
+      }));
+    } finally {
+      await this.cleanupBox(boxId);
+    }
+  }
+
+  private async executeTestCase(
+    boxId: number,
+    langConfig: any,
+    sourceFile: string,
+    testCase: TestCase,
+    config: ExecutionConfig,
+    boxPath: string,
+  ): Promise<ExecutionResult> {
+    this.logger.log(`Executing test case: ${boxId}`);
+
+    const metaFile = `/tmp/isolate-meta-${boxId}-${Date.now()}-${testCase.name.replace(/\s+/g, '_')}.txt`;
+
+    try {
+      if (testCase.input) {
+        const inputPath = join(boxPath, 'box', 'input.txt');
+        const tempInputPath = `/tmp/input-${boxId}-${Date.now()}.txt`;
+        this.logger.log(`Input path: ${inputPath}`);
+        await writeFile(tempInputPath, testCase.input);
+        this.logger.log(`input test written to temp path: ${tempInputPath}`);
+
+        await execAsync(`sudo mv ${tempInputPath} ${inputPath}`);
+        await execAsync(`sudo chmod 644 ${inputPath}`);
+        this.logger.log(`Input test written to file ${inputPath}`);
+      }
+
+      const execFile = langConfig.run.needsCompilation ? 'solution' : sourceFile;
+      const runCmd = typeof langConfig.run.cmd === 'function'
+        ? langConfig.run.cmd(execFile)
+        : langConfig.run.cmd;
+
+
+      const inputRedirect = testCase.input ? '< input.txt' : '';
+      const outputFile = 'output.txt';
+      const errorFile = 'error.txt';
+
+      const bashCommand = `exec ${runCmd} ${inputRedirect} > ${outputFile} 2> ${errorFile}`;
+
+      const command = `sudo isolate --box-id=${boxId} \
+      --time=${config.timeLimit} \
+      --wall-time=${config.timeLimit * config.wallTimeMultiplier!} \
+      --mem=${config.memoryLimit} \
+      --stack=${config.stackLimit} \
+      --processes=${config.processes} \
+      --dir=/etc:noexec \
+      --dir=/usr:noexec \
+      --env=HOME=/box \
+      --env=PATH=/usr/bin:/bin \
+      --meta=${metaFile} \
+      --run -- /bin/sh -c '${bashCommand}'`;
+
+      try {
+        await execAsync(command, { timeout: (config.timeLimit * config.wallTimeMultiplier! + 5) * 1000 });
+      } catch (error) {
+        this.logger.log(`Execution threw error (normal for TLE/RE): ${error.message}`);
+      }
+
+      let output = '';
+      let stderr = '';
+
+      try {
+        const result = await execAsync(`sudo cat ${boxPath}/box/${outputFile}`);
+        output = result.stdout;
+      } catch (e) {
+        this.logger.warn(`Could not read output file: ${e.message}`);
+      }
+
+      try {
+        const result = await execAsync(`sudo cat ${boxPath}/box/${errorFile}`);
+        stderr = result.stdout;
+      } catch (e) {
+        this.logger.warn(`Could not read error file: ${e.message}`);
+      }
+
+      let meta: any;
+      try {
+        await execAsync(`sudo chown $USER:$USER ${metaFile}`);
+        const metaContent = await readFile(metaFile, 'utf-8');
+        meta = this.parseMetaFile(metaContent);
+      } catch (error) {
+        this.logger.error('Failed to read meta file:', error);
+        return {
+          success: false,
+          error: 'Failed to get execution statistics',
+          status: 'SE',
+        };
+      }
+
+      return this.formatExecutionResult(meta, output, stderr);
+    } finally {
+      // Cleanup meta file
+      try {
+        await execAsync(`sudo rm -f ${metaFile}`);
+      } catch (e) {
+        this.logger.warn(`Failed to delete meta file: ${e.message}`);
+      }
+    }
+  }
+
 
   async executeCode(
     code: string,
