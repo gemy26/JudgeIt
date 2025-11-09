@@ -5,6 +5,7 @@ import * as winston from 'winston';
 import cookieParser from 'cookie-parser';
 import { ConfigService } from '@nestjs/config';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -45,6 +46,11 @@ async function bootstrap() {
       },
     }
   });
+
+  const config = new DocumentBuilder().setTitle('JudgeIt API').setVersion('1.0').build();
+
+  const documentFactory = () => SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api', app, documentFactory());
 
   await app.startAllMicroservices();
   console.log('Microservices started');
