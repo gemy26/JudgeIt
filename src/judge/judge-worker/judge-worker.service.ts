@@ -46,7 +46,7 @@ export class JudgeWorkerService {
         const verdicates = await this.validateResults(results, tests);
 
         let finalVerdicate = "ACC";
-        if(verdicates?.length !== tests.length) {
+        if(verdicates?.length !== tests.length || verdicates[verdicates.length - 1] !== "ACC") {
           finalVerdicate = verdicates[verdicates.length - 1];
         }
 
@@ -66,6 +66,8 @@ export class JudgeWorkerService {
         }
 
         await this.submssionsService.addSubmissionResults(submissionResults);
+
+        console.log("Validation finished");
 
         return verdicates;
     }
@@ -147,6 +149,8 @@ export class JudgeWorkerService {
             const expectedResult = this.normalizeOutputStrict(tests[i].output!);
             const actualResult = this.normalizeOutputStrict(results[i].output!);
 
+            console.log(expectedResult, actualResult);
+            console.log(actualResult === expectedResult);
             if(expectedResult === actualResult) {
                 verdicates.push("ACC");
             } else {
