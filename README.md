@@ -1,98 +1,230 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Online Judge (OJ)
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A production-ready online judge backend built with **NestJS**, **TypeScript**, and **Prisma**. Securely executes user-submitted code in isolated sandboxes, validates against test cases, and persists results—designed for competitive programming platforms and coding assessment systems.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+---
 
-## Description
+## Table of Contents
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [Architecture & Components](#architecture--components)
+- [Submission & Execution Flow](#submission--execution-flow)
+- [Getting Started](#getting-started)
+- [API Usage](#api-usage)
+- [Configuration](#configuration)
+- [Development & Testing](#development--testing)
+- [Roadmap & Future Work](#roadmap--future-work)
+- [Security Considerations](#security-considerations)
+- [License](#license)
 
-## Project setup
+---
 
-```bash
-$ npm install
-```
+## Overview
 
-## Compile and run the project
+**OJ** is an end-to-end online judge system that:
 
-```bash
-# development
-$ npm run start
+- **Authenticates users** via JWT (local + Google OAuth)
+- **Ingests code submissions** through REST APIs
+- **Queues submissions** asynchronously using Kafka
+- **Executes in sandboxes** using the `isolate` tool, with resource limits (CPU, memory, disk, timeout)
+- **Manages execution pools** via Redis for efficient resource reuse
+- **Validates results** against problem test cases stored in S3
+- **Persists data** to PostgreSQL with comprehensive result tracking
+---
 
-# watch mode
-$ npm run start:dev
+## Key Features
 
-# production mode
-$ npm run start:prod
-```
+### Authentication & Authorization
+- **JWT-based authentication** with access/refresh token rotation
+- **Google OAuth 2.0 integration** for seamless sign-up/sign-in
+- **Role-based access control** for endpoints (admin, user, etc.)
+- **Password reset flow** via email with secure tokens
 
-## Run tests
+### Code Execution & Sandboxing
+- **Multi-language support** (C++, Python) via pluggable language configs
+- **Isolated execution** using `isolate` with per-test resource limits:
+  - CPU time, memory, disk space, process count
+  - Real-time sandboxing prevents filesystem/network escapes
+- **Compilation & runtime separation** for compiled languages
 
-```bash
-# unit tests
-$ npm run test
+### Asynchronous Job Processing
+- **Kafka-based submission queueing** for reliable, distributed processing
+- **Dedicated judge workers** consume submissions and perform execution
 
-# e2e tests
-$ npm run test:e2e
+### Resource Management
+- **Redis-backed sandbox pool** — acquire/release/reset sandboxes efficiently
+- **Distributed locking** to prevent race conditions in box allocation
 
-# test coverage
-$ npm run test:cov
-```
+### Data Persistence
+- **PostgreSQL with Prisma ORM** for relational data (users, problems, submissions, results)
+- **S3 integration** for storing and retrieving test cases
 
-## Deployment
+### Testing & Observability
+- **Jest unit** for core services (under develope)
+- **Winston logging** for debugging and monitoring
+- **Structured execution logs** capturing compile/run diagnostics
+- **CI/CD workflows** (GitHub Actions) for automated testing and deployment (CI for now and CD under developement)
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### Technology Stack
+- **NestJS**: Framework for building the server-side application.
+- **TypeScript**: Language for writing type-safe JavaScript code.
+- **Prisma**: ORM for database access and migrations.
+- **PostgreSQL**: Relational database for storing structured data.
+- **Redis**: In-memory data store for caching and sandbox management.
+- **Kafka**: Distributed event streaming platform for handling submission queues.
+- **Docker**: Containerization platform for consistent development and deployment environments.
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
+---
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+## Submission & Execution Flow
 
-## Resources
+1. **Client submits code**: Source code and metadata are sent to the API Gateway.
+2. **API Gateway**: Forwards the request to the Submission Service after authentication.
+3. **Submission Service**:
+   - Validates and stores the submission.
+   - Publishes a message to the Kafka submission queue.
+4. **Judge Worker** (consuming from Kafka):
+   - Retrieves the submission message.
+   - Fetches associated problem data and test cases.
+   - Calls the Execution Service to run the code.
+5. **Execution Service**:
+   - Allocates a sandbox using the Redis-backed pool.
+   - Executes the code with resource limits using `isolate`.
+   - Collects and returns the execution results.
+6. **Judge Worker**:
+   - Validates the results against the expected output.
+   - Persists the results and updates the submission status.
+   - Sends a notification (optional) about the verdict.
 
-Check out a few resources that may come in handy when working with NestJS:
+---
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+## Getting Started
 
-## Support
+### Prerequisites
+- Node.js (>=14.x)
+- PostgreSQL (running instance)
+- Redis (running instance)
+- Kafka & Zookeeper (running instance)
+- Docker (for optional containerized setup)
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+### Installation
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/oj.git
+   cd oj
+   ```
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Configure environment variables:
+   - Copy `.env.example` to `.env` and update values (DB connection, JWT secret, etc.).
+4. Run database migrations:
+   ```bash
+   npx prisma migrate dev
+   ```
+5. Start the application:
+   ```bash
+   npm run start:dev
+   ```
 
-## Stay in touch
+### Docker Setup (Optional)
+- To run the entire stack using Docker Compose (PostgreSQL, Kafka, Zookeeper, Redis):
+  ```bash
+  docker-compose up -d
+  ```
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+---
+
+## API Usage
+
+### Authentication
+- **Login**: `POST /auth/login` - Authenticate user and return tokens.
+- **Google OAuth**: `GET /auth/google` - Redirect to Google for authentication.
+
+### User Management
+- **Get Profile**: `GET /users/me` - Retrieve the authenticated user's profile.
+- **Update Profile**: `PATCH /users/me` - Update the authenticated user's profile.
+
+### Submission Management
+- **Submit Code**: `POST /submissions` - Submit source code for judging.
+- **Get Submission**: `GET /submissions/{id}` - Retrieve submission details and results.
+
+### Execution & Judging
+- **Execute Code**: `POST /execute` - (Internal) Directly execute code without submission.
+- **Judge Submission**: `POST /judge` - (Internal) Manually trigger judging for a submission.
+
+---
+
+## Configuration
+
+- Environment variables are used for configuration (see `.env.example`).
+- Key settings include:
+  - `DATABASE_URL`: Connection string for PostgreSQL.
+  - `REDIS_URL`: Connection string for Redis.
+  - `KAFKA_BROKER`: Kafka broker address.
+  - `JWT_SECRET`: Secret key for signing JWTs.
+  - `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET`: Credentials for Google OAuth.
+
+---
+
+## Development & Testing
+
+### Development Tools
+- **NestJS CLI**: For generating modules, controllers, and services.
+- **Prisma Studio**: GUI for interacting with the database.
+- **Docker**: For containerized development (optional).
+
+### Testing
+- Unit and integration tests are written using Jest.
+- To run tests:
+  ```bash
+  npm run test
+  ```
+
+---
+
+## Roadmap & Future Work
+
+- **Short-term**:
+  - Improve documentation and setup guides.
+  - Enhance error handling and validation.
+  - Optimize performance of the execution sandbox.
+
+- **Long-term**:
+  - Support for more programming languages and configurations.
+  - Advanced features like plagiarism detection, code linting, and auto-formatting.
+  - Integration with front-end applications and third-party services.
+
+---
+
+## Security Considerations
+
+- Sensitive data (passwords, tokens) are hashed or encrypted.
+- Environment variables are used to store secrets and configuration.
+- Regular security audits and dependency updates are performed.
+
+---
 
 ## License
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+- This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## Acknowledgments
+
+- Inspired by various online judge systems and competitive programming platforms.
+- Built with passion by the developer community.
+
+---
+
+## Contact
+
+- For questions or support, please open an issue on GitHub or contact the maintainers.
+
+---
+
+**End of Documentation**
