@@ -1,10 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { BoxManager } from './box.manager';
-import { ConfigService } from '@nestjs/config';
-import { ExecutionConfig, ExecutionResult, TestCase } from '../types';
-import { languages } from './language.config';
+import {
+  ExecutionConfig,
+  ExecutionResult,
+  IsolateMeta,
+  TestCase,
+  languages,
+  LanguageConfig,
+} from '../types';
 import { join } from 'path';
-import { writeFile, readFile, unlink } from 'fs/promises';
+import { writeFile, readFile } from 'fs/promises';
 import { promisify } from 'node:util';
 import { exec } from 'node:child_process';
 
@@ -12,613 +16,235 @@ const execAsync = promisify(exec);
 
 @Injectable()
 export class ExecutionService {
-  private readonly logger = new Logger(ExecutionService.name);
+  private readonly logger = new Logger(ExecutionService.name, { timestamp: true });
+
+
   private readonly defaultConfig: ExecutionConfig = {
     timeLimit: 2,
     memoryLimit: 256000,
     stackLimit: 256000,
     processes: 1,
-    wallTimeMultiplier: 2,
   };
-  constructor(
-    private boxManager: BoxManager,
-    configService: ConfigService
-  ) {
-    this.logger.log('Loaded languages:', JSON.stringify(languages, null, 2));
-  }
 
 
   async executeBatch(
-    code: string,
-    language: 'cpp' | 'python',
-    testCases: TestCase[],
-    config: Partial<ExecutionConfig> = {},
-  ): Promise<ExecutionResult[]> {
-    const execConfig = { ...this.defaultConfig, ...config };
-
-    let retry = 5;
-    let boxId = await this.boxManager.acquireBoxId();
-    while (boxId === null && retry !== 0) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-      boxId = await this.boxManager.acquireBoxId();
-      retry--;
-    }
-
-    if (boxId === null) {
-      this.logger.error('No available boxes - queue is full');
-      return testCases.map(tc => ({
-        testCaseName: tc.name,
-        success: false,
-        error: 'Server is busy. Please try again later.',
-        status: 'SE',
-      }));
-    }
-
-    try {
-      return await this.executeBatchInBox(boxId, code, language, testCases, execConfig);
-    } finally {
-      await this.boxManager.releaseBoxId(boxId);
-    }
-  }
-
-  private async executeBatchInBox(
     boxId: number,
     code: string,
     language: string,
     testCases: TestCase[],
-    config: ExecutionConfig,
+    config: Partial<ExecutionConfig> = {},
   ): Promise<ExecutionResult[]> {
-    this.logger.log(`executeBatchInBox called with ${testCases.length} test cases`);
-
     const langConfig = languages[language];
     if (!langConfig) {
-      this.logger.error(`Language config not found for: ${language}`);
-      return testCases.map(tc => ({
-        testCaseName: tc.name,
-        success: false,
-        error: `Unsupported language: ${language}`,
-        status: 'SE',
-      }));
+      this.logger.error(`Unsupported language: ${language}`);
+      return this.buildErrorResults(testCases, `Unsupported language: ${language}`, 'SE');
     }
 
+    const mergedConfig = this.mergeConfig(config);
     let boxPath: string;
     try {
       boxPath = await this.initBox(boxId);
-      this.logger.log(`Box ${boxId} initialized at: ${boxPath}`);
     } catch (error) {
       this.logger.error(`Failed to init box ${boxId}:`, error);
-      return testCases.map(tc => ({
-        testCaseName: tc.name,
-        success: false,
-        error: 'Failed to initialize sandbox',
-        status: 'SE',
-      }));
+      return this.buildErrorResults(testCases, 'Failed to initialize sandbox', 'SE');
     }
 
     try {
       const sourceFile = `solution.${langConfig.extension}`;
       const sourcePath = join(boxPath, 'box', sourceFile);
 
-      const sanitizedCode = this.sanitizeCode(code);
-      await writeFile(sourcePath, sanitizedCode);
-      this.logger.log(`Source code written to: ${sourcePath}`);
+      this.validateCode(code);
+      await writeFile(sourcePath, code, { encoding: 'utf8' });
 
-      if (langConfig.run.needsCompilation) {
-        this.logger.log(`Starting compilation for box ${boxId}`);
-        const compileResult = await this.compile(boxId, sourceFile, langConfig.compile, boxPath);
-
+      // Compile if needed (C++, etc.)
+      if (langConfig.compile) {
+        const compileResult = await this.compileSource(boxId, sourceFile, langConfig, boxPath);
         if (!compileResult.success) {
-          // If compilation fails, return CE for all test cases
-          return testCases.map(tc => ({
-            testCaseName: tc.name,
-            success: false,
-            error: compileResult.error,
-            status: 'CE',
-          }));
+          return this.buildErrorResults(testCases, compileResult.error!, 'CE');
         }
-
-        try {
-          await execAsync(`sudo chmod +x ${boxPath}/box/solution`);
-          this.logger.log(`Made solution executable`);
-        } catch (e) {
-          this.logger.error(`Failed to chmod solution: ${e.message}`);
-        }
+        // Make compiled binary executable
+        const executablePath = join(boxPath, 'box', 'solution');
+        await execAsync(`chmod +x ${executablePath}`).catch(() => {});
       }
 
+      // Run each test case sequentially
       const results: ExecutionResult[] = [];
-      for (let i = 1; i <= testCases.length; i ++) {
-        const testCase = testCases[i - 1];
-        this.logger.log(`Executing test case: ${testCase.name}`);
-        const result = await this.executeTestCase(
-          boxId,
-          langConfig,
-          sourceFile,
-          testCase,
-          config,
-          boxPath,
+      for (const testCase of testCases) {
+        const result = await this.runTestCase(
+          boxId, langConfig, sourceFile, testCase, mergedConfig, boxPath,
         );
-        results.push({
-          ...result
-        });
+        results.push({ ...result, testCaseName: testCase.name });
       }
 
       return results;
     } catch (error) {
       this.logger.error(`Batch execution error in box ${boxId}:`, error);
-      return testCases.map(tc => ({
-        testCaseName: tc.name,
-        success: false,
-        error: 'Internal execution error',
-        status: 'SE',
-      }));
+      return this.buildErrorResults(testCases, 'Internal execution error', 'SE');
     } finally {
-      await this.cleanupBox(boxId);
+      await this.destroyBox(boxId);
     }
   }
 
-  private async executeTestCase(
-    boxId: number,
-    langConfig: any,
-    sourceFile: string,
-    testCase: TestCase,
-    config: ExecutionConfig,
-    boxPath: string,
-  ): Promise<ExecutionResult> {
-    this.logger.log(`Executing test case: ${boxId}`);
-
-    const metaFile = `/tmp/isolate-meta-${boxId}-${Date.now()}-${testCase.name.replace(/\s+/g, '_')}.txt`;
-
-    try {
-      if (testCase.input) {
-        const inputPath = join(boxPath, 'box', 'input.txt');
-        const tempInputPath = `/tmp/input-${boxId}-${Date.now()}.txt`;
-        this.logger.log(`Input path: ${inputPath}`);
-        await writeFile(tempInputPath, testCase.input);
-        this.logger.log(`input test written to temp path: ${tempInputPath}`);
-
-        await execAsync(`sudo mv ${tempInputPath} ${inputPath}`);
-        await execAsync(`sudo chmod 644 ${inputPath}`);
-        this.logger.log(`Input test written to file ${inputPath}`);
-      }
-
-      const execFile = langConfig.run.needsCompilation ? 'solution' : sourceFile;
-      const runCmd = typeof langConfig.run.cmd === 'function'
-        ? langConfig.run.cmd(execFile)
-        : langConfig.run.cmd;
-
-
-      const inputRedirect = testCase.input ? '< input.txt' : '';
-      const outputFile = 'output.txt';
-      const errorFile = 'error.txt';
-
-      const bashCommand = `exec ${runCmd} ${inputRedirect} > ${outputFile} 2> ${errorFile}`;
-
-      const command = `sudo isolate --box-id=${boxId} \
-      --time=${config.timeLimit} \
-      --wall-time=${config.timeLimit * config.wallTimeMultiplier!} \
-      --mem=${config.memoryLimit} \
-      --stack=${config.stackLimit} \
-      --processes=${config.processes} \
-      --dir=/etc:noexec \
-      --dir=/usr:noexec \
-      --env=HOME=/box \
-      --env=PATH=/usr/bin:/bin \
-      --meta=${metaFile} \
-      --run -- /bin/sh -c '${bashCommand}'`;
-
-      try {
-        await execAsync(command, { timeout: (config.timeLimit * config.wallTimeMultiplier! + 5) * 1000 });
-      } catch (error) {
-        this.logger.log(`Execution threw error (normal for TLE/RE): ${error.message}`);
-      }
-
-      let output = '';
-      let stderr = '';
-
-      try {
-        const result = await execAsync(`sudo cat ${boxPath}/box/${outputFile}`);
-        output = result.stdout;
-      } catch (e) {
-        this.logger.warn(`Could not read output file: ${e.message}`);
-      }
-
-      try {
-        const result = await execAsync(`sudo cat ${boxPath}/box/${errorFile}`);
-        stderr = result.stdout;
-      } catch (e) {
-        this.logger.warn(`Could not read error file: ${e.message}`);
-      }
-
-      let meta: any;
-      try {
-        await execAsync(`sudo chown $USER:$USER ${metaFile}`);
-        const metaContent = await readFile(metaFile, 'utf-8');
-        meta = this.parseMetaFile(metaContent);
-      } catch (error) {
-        this.logger.error('Failed to read meta file:', error);
-        return {
-          success: false,
-          error: 'Failed to get execution statistics',
-          status: 'SE',
-        };
-      }
-
-      return this.formatExecutionResult(meta, output, stderr);
-    } finally {
-      // Cleanup meta file
-      try {
-        await execAsync(`sudo rm -f ${metaFile}`);
-      } catch (e) {
-        this.logger.warn(`Failed to delete meta file: ${e.message}`);
-      }
-    }
-  }
-
-
-  async executeCode(
-    code: string,
-    language: 'cpp' | 'python',   //just cpp & python for now
-    input: any,
-    config: Partial<ExecutionConfig> = {},
-  ): Promise<ExecutionResult> {
-    const execConfig = {... this.defaultConfig, ... config};
-
-    let retry = 5;
-    let boxId = await this.boxManager.acquireBoxId();
-    while(boxId === null && retry !== 0){
-      setTimeout(()=>{}, 1);
-      boxId = await this.boxManager.acquireBoxId();
-    }
-
-    if (boxId === null) {
-      this.logger.error('No available boxes - queue is full');
-      return {
-        success: false,
-        error: 'Server is busy. Please try again later.',
-        status: 'SE',
-      };
-    }
-
-    try {
-      return await this.executeInBox(boxId, code, language, input, execConfig);
-    } finally {
-      await this.boxManager.releaseBoxId(boxId);
-    }
-  }
-
-  async executeInBox(boxId: number, code: string, language: string, input: any, config: ExecutionConfig): Promise<ExecutionResult> {
-    this.logger.log(`executeInBox called with language: ${language}`);
-
-    const langConfig = languages[language];
-
-    this.logger.log(`langConfig:`, JSON.stringify(langConfig));
-
-    if (!langConfig) {
-      this.logger.error(`Language config not found for: ${language}`);
-      return {
-        success: false,
-        error: `Unsupported language: ${language}`,
-        status: 'SE',
-      };
-    }
-
-    let boxPath: string;
-
-    try {
-      boxPath = await this.initBox(boxId);
-      this.logger.log(`Box ${boxId} initialized at: ${boxPath}`);
-    } catch (error) {
-      this.logger.error(`Failed to init box ${boxId}:`, error);
-      return {
-        success: false,
-        error: 'Failed to initialize sandbox',
-        status: 'SE',
-      };
-    }
-
-    const metaFile = `/tmp/isolate-meta-${boxId}-${Date.now()}.txt`;
-
-    try{
-      this.logger.log(`langConfig.extension: ${langConfig.extension}`);
-      const sourceFile = `solution.${langConfig.extension}`;
-      this.logger.log(`sourceFile: ${sourceFile}`);
-
-      const sourcePath = join(boxPath, 'box', sourceFile);
-      this.logger.log(`sourcePath: ${sourcePath}`);
-
-      this.logger.log(`metaFile: ${metaFile}`);
-
-      this.logger.log(`Writing source to: ${sourcePath}`);
-      this.logger.log(`Code length: ${code.length}`);
-
-      this.logger.log(`About to sanitize code...`);
-      const sanitizedCode = this.sanitizeCode(code);
-      this.logger.log(`Code sanitized, length: ${sanitizedCode.length}`);
-
-      this.logger.log(`About to write file...`);
-      await writeFile(sourcePath, sanitizedCode);
-      this.logger.log(`File written successfully`);
-
-      if (input) {
-        this.logger.log(`Writing input file...`);
-        const inputPath = join(boxPath, 'box', 'input.txt');
-        await writeFile(inputPath, input);
-        this.logger.log(`Input file written`);
-      } else {
-        this.logger.log(`No input provided, skipping input file`);
-      }
-
-      this.logger.log(`Checking if compilation needed...`);
-      this.logger.log(`needsCompilation: ${langConfig.run.needsCompilation}`);
-
-      if (langConfig.run.needsCompilation) {
-        this.logger.log(`Starting compilation for box ${boxId}`);
-
-        if (!langConfig.compile || !langConfig.compile.cmd) {
-          this.logger.error(`compile.cmd is missing! langConfig.compile:`, JSON.stringify(langConfig.compile));
-          return {
-            success: false,
-            error: 'Compilation configuration error',
-            status: 'SE',
-          };
-        }
-
-        this.logger.log(`Calling compile method...`);
-
-        const compileResult = await this.compile(
-          boxId,
-          sourceFile,
-          langConfig.compile,
-          boxPath,
-        );
-
-        this.logger.log(`Compile method returned`);
-
-        if (!compileResult.success) {
-          return {
-            success: false,
-            error: compileResult.error,
-            status: 'CE',
-          };
-        }
-
-        //Make the compiled binary executable
-        try {
-          await execAsync(`sudo chmod +x ${boxPath}/box/solution`);
-          this.logger.log(`Made solution executable`);
-
-          // Verify the file exists and is executable
-          const lsResult = await execAsync(`sudo ls -la ${boxPath}/box/solution`);
-          this.logger.log(`Solution file info: ${lsResult.stdout.trim()}`);
-        } catch (e) {
-          this.logger.error(`Failed to chmod solution: ${e.message}`);
-        }
-
-        this.logger.log(`Compilation successful for box ${boxId}`);
-      }
-
-      // Execute
-      this.logger.log(`Starting execution for box ${boxId}`);
-      const execResult = await this.execute(
-        boxId,
-        langConfig,
-        sourceFile,
-        input,
-        config,
-        metaFile,
-        boxPath,
-      );
-
-      this.logger.log(`Execution completed`);
-
-      //Cleanup meta file with sudo BEFORE returning
-      try {
-        await execAsync(`sudo rm -f ${metaFile}`);
-      } catch (e) {
-        this.logger.warn(`Failed to delete meta file: ${e.message}`);
-      }
-
-      return execResult;
-    } catch(error) {
-      this.logger.error(`Execution error in box ${boxId}:`, error);
-      this.logger.error(`Error type:`, typeof error);
-      this.logger.error(`Error constructor:`, error?.constructor?.name);
-      this.logger.error(`Error stack:`, error?.stack);
-      this.logger.error(`Error message:`, error?.message);
-      this.logger.error(`Full error object:`, JSON.stringify(error, Object.getOwnPropertyNames(error)));
-
-      return {
-        success: false,
-        error: 'Internal execution error',
-        status: 'SE',
-      };
-    }
-    finally {
-      await this.cleanupBox(boxId);
-    }
-  }
 
   private async initBox(boxId: number): Promise<string> {
-    const { stdout } = await execAsync(
-      `sudo isolate --box-id=${boxId} --init`,
-    );
+    const { stdout } = await execAsync(`sudo isolate --box-id=${boxId} --init`);
     const boxPath = stdout.trim();
-
-    // Change ownership so Node.js can write files
     await execAsync(`sudo chown -R $USER:$USER ${boxPath}`);
-
+    this.logger.debug(`Box ${boxId} initialized at ${boxPath}`);
     return boxPath;
   }
 
-  private async compile(
+  private async destroyBox(boxId: number): Promise<void> {
+    try {
+      await execAsync(`sudo isolate --box-id=${boxId} --cleanup`);
+    } catch {
+      this.logger.warn(`Failed to cleanup box ${boxId}`);
+    }
+  }
+
+
+  private async compileSource(
     boxId: number,
     sourceFile: string,
-    compileConfig: any,
+    langConfig: LanguageConfig,
     boxPath: string,
   ): Promise<{ success: boolean; error?: string }> {
-    try {
-      const compileCmd = compileConfig.cmd(sourceFile);
-      const stderrPath = join(boxPath, 'box', 'compile_error.txt');
+    const compileConfig = langConfig.compile!;
+    const compileCmd = compileConfig.cmd(sourceFile).join(' ');
+    const wallTime = compileConfig.timeout * 2;
 
-      const command = `sudo isolate --box-id=${boxId} \
+    const command = `sudo isolate --box-id=${boxId} \
       --time=${compileConfig.timeout} \
-      --wall-time=${compileConfig.timeout * 2} \
+      --wall-time=${wallTime} \
       --mem=512000 \
       --processes=50 \
       --dir=/etc:noexec \
       --env=PATH=/usr/bin:/bin \
       --run -- /bin/bash -c "${compileCmd} 2> compile_error.txt"`;
 
+    try {
       await execAsync(command);
-
+      this.logger.debug(`Compilation succeeded for box ${boxId}`);
       return { success: true };
-    } catch (error) {
+    } catch {
       let compileError = 'Compilation failed';
       try {
-        const stderrPath = join(boxPath, 'box', 'compile_error.txt');
-        compileError = await readFile(stderrPath, 'utf-8');
-      } catch (e) {
-        compileError = error.message || 'Compilation failed';
+        compileError = await readFile(join(boxPath, 'box', 'compile_error.txt'), 'utf-8');
+      } catch {
+        this.logger.error(`Compilation error read failed for box ${boxId}`);
       }
-
-      return {
-        success: false,
-        error: this.formatCompileError(compileError),
-      };
+      this.logger.warn(`Compilation failed for box ${boxId}`);
+      return { success: false, error: this.truncate(compileError, 1000) };
     }
   }
 
-  private async execute(
+
+  private async runTestCase(
     boxId: number,
-    langConfig: any,
+    langConfig: LanguageConfig,
     sourceFile: string,
-    input: string,
+    testCase: TestCase,
     config: ExecutionConfig,
-    metaFile: string,
     boxPath: string,
   ): Promise<ExecutionResult> {
-    const execFile = langConfig.run.needsCompilation ? 'solution' : sourceFile;
-    const runCmd = typeof langConfig.run.cmd === 'function'
-      ? langConfig.run.cmd(execFile)
-      : langConfig.run.cmd;
-
-    const inputRedirect = input ? '< input.txt' : '';
-    const outputFile = 'output.txt';
-    const errorFile = 'error.txt';
-
-    const bashCommand = `exec ${runCmd} ${inputRedirect} > ${outputFile} 2> ${errorFile}`;
-    this.logger.log(`Run command: ${runCmd}`);
-    this.logger.log(`Shell command: ${bashCommand}`);
-
-    const command = `sudo isolate --box-id=${boxId} \
-    --time=${config.timeLimit} \
-    --wall-time=${config.timeLimit * config.wallTimeMultiplier!} \
-    --mem=${config.memoryLimit} \
-    --stack=${config.stackLimit} \
-    --processes=${config.processes} \
-    --dir=/etc:noexec \
-    --dir=/usr:noexec \
-    --env=HOME=/box \
-    --env=PATH=/usr/bin:/bin \
-    --meta=${metaFile} \
-    --run -- /bin/sh -c '${bashCommand}'`;
-
-    this.logger.log(`Full isolate command:\n${command}`);
+    const metaFile = `/tmp/isolate-meta-${boxId}-${Date.now()}.txt`;
 
     try {
-      const result = await execAsync(command, { timeout: (config.timeLimit * config.wallTimeMultiplier! + 5) * 1000 });
-      this.logger.log(`Execution stdout: ${result.stdout}`);
-      this.logger.log(`Execution stderr: ${result.stderr}`);
-    } catch (error) {
-      // Expected for TLE, MLE, RE - check meta file for details
-      this.logger.log(`Execution threw error (this is normal for TLE/RE): ${error.message}`);
-      if (error.stderr) {
-        this.logger.log(`Execution stderr from error: ${error.stderr}`);
+      if (testCase.input) {
+        await writeFile(join(boxPath, 'box', 'input.txt'), testCase.input);
       }
+
+      // Build isolate command
+      const execFile = langConfig.compile ? 'solution' : sourceFile;
+      const runCmd = langConfig.run.cmd(execFile).join(' ');
+      const inputRedirect = testCase.input ? '< input.txt' : '';
+      const shellCmd = `exec ${runCmd} ${inputRedirect} > output.txt 2> error.txt`;
+
+      const wallTime = langConfig.run.wallTime(config.timeLimit);
+      const usrDir = langConfig.compile ? '--dir=/usr:noexec' : '--dir=/usr';
+
+      const command = `sudo isolate --box-id=${boxId} \
+        --time=${config.timeLimit} \
+        --wall-time=${wallTime} \
+        --mem=${config.memoryLimit} \
+        --stack=${config.stackLimit} \
+        --processes=${config.processes} \
+        --dir=/etc:noexec \
+        ${usrDir} \
+        --env=HOME=/box \
+        --env=PATH=/usr/bin:/bin \
+        --meta=${metaFile} \
+        --run -- /bin/sh -c '${shellCmd}'`;
+
+      try {
+        await execAsync(command, { timeout: (wallTime + 5) * 1000 });
+      } catch {
+        this.logger.warn(`Execution command failed for box ${boxId}, test case ${testCase.name}`);
+      }
+
+      // Read outputs
+      const output = await this.readBoxFile(boxPath, 'output.txt');
+      const stderr = await this.readBoxFile(boxPath, 'error.txt');
+
+      // Parse meta file for execution stats
+      const meta = await this.readMeta(metaFile);
+      if (!meta) {
+        return this.buildResult({ error: 'Failed to read execution metadata', status: 'SE' });
+      }
+
+      return this.buildResultFromMeta(meta, output, stderr);
+    } finally {
+      await execAsync(`sudo rm -f ${metaFile}`).catch(() => {});
     }
+  }
 
-    let output = '';
-    let stderr = '';
+  // ─── Meta File Parsing ─────────────────────────────────────────
 
-    try {
-      const result = await execAsync(`sudo cat ${boxPath}/box/${outputFile}`);
-      output = result.stdout;
-    } catch (e) {
-      this.logger.warn(`Could not read output file: ${e.message}`);
-    }
-
-    try {
-      const result = await execAsync(`sudo cat ${boxPath}/box/${errorFile}`);
-      stderr = result.stdout;
-    } catch (e) {
-      // Error file may not exist
-      this.logger.warn(`Could not read error file: ${e.message}`);
-    }
-
-    let meta: any;
+  private async readMeta(metaFile: string): Promise<IsolateMeta | null> {
     try {
       await execAsync(`sudo chown $USER:$USER ${metaFile}`);
-      const metaContent = await readFile(metaFile, 'utf-8');
-      this.logger.log(`Meta file content:\n${metaContent}`);
-      meta = this.parseMetaFile(metaContent);
-      this.logger.log(`Parsed meta: ${JSON.stringify(meta)}`);
+      const content = await readFile(metaFile, 'utf-8');
+      return this.parseMetaFile(content);
     } catch (error) {
       this.logger.error('Failed to read meta file:', error);
-      return {
-        success: false,
-        error: 'Failed to get execution statistics',
-        status: 'SE',
-      };
-    }
-
-    return this.formatExecutionResult(meta, output, stderr);
-  }
-
-  private async cleanupBox(boxId: number): Promise<void> {
-    try {
-      await execAsync(`sudo isolate --box-id=${boxId} --cleanup`);
-    } catch (error) {
-      this.logger.warn(`Failed to cleanup box ${boxId}:`, error);
+      return null;
     }
   }
 
-  private parseMetaFile(content: string): any {
-    const meta: any = {};
-    const lines = content.split('\n');
+  private parseMetaFile(content: string): IsolateMeta {
+    const raw: Record<string, string> = {};
 
-    for (const line of lines) {
-      const colonIndex = line.indexOf(':');
-      if (colonIndex > 0) {
-        const key = line.substring(0, colonIndex).trim();
-        const value = line.substring(colonIndex + 1).trim();
-        meta[key] = value;
+    for (const line of content.split('\n')) {
+      const colonIdx = line.indexOf(':');
+      if (colonIdx > 0) {
+        raw[line.substring(0, colonIdx).trim()] = line.substring(colonIdx + 1).trim();
       }
     }
 
-    // If no status is present and exitcode is 0, it's OK
-    // If no status is present and exitcode is non-zero, it's RE
-    let status = meta.status || (meta.exitcode === '0' ? 'OK' : 'RE');
+    const status = raw.status || (raw.exitcode === '0' ? 'OK' : 'RE');
 
     return {
-      status: status,
-      time: parseFloat(meta.time) || 0,
-      timeWall: parseFloat(meta['time-wall']) || 0,
-      memory: parseInt(meta['max-rss']) || parseInt(meta['cg-mem']) || 0,
-      exitCode: parseInt(meta.exitcode) || 0,
-      signal: parseInt(meta.exitsig) || parseInt(meta.killed) || 0,
-      message: meta.message || '',
+      status,
+      time: parseFloat(raw.time) || 0,
+      wallTime: parseFloat(raw['time-wall']) || 0,
+      memory: parseInt(raw['max-rss']) || parseInt(raw['cg-mem']) || 0,
+      exitCode: parseInt(raw.exitcode) || 0,
+      signal: parseInt(raw.exitsig) || parseInt(raw.killed) || 0,
+      message: raw.message || '',
     };
   }
 
-  private formatExecutionResult(
-    meta: any,
+
+  private buildResultFromMeta(
+    meta: IsolateMeta,
     output: string,
     stderr: string,
   ): ExecutionResult {
-    const result: ExecutionResult = {
+    const base: ExecutionResult = {
       success: false,
       output: output.trim(),
       time: meta.time,
+      wallTime: meta.wallTime,
       memory: meta.memory,
       exitCode: meta.exitCode,
       status: 'RE',
@@ -628,39 +254,92 @@ export class ExecutionService {
       case 'OK':
       case 'RE':
         if (meta.exitCode === 0) {
-          result.success = true;
-          result.status = 'OK';
+          base.success = true;
+          base.status = 'OK';
         } else {
-          result.error = stderr || `Exit code: ${meta.exitCode}`;
-          result.status = 'RE';
+          base.error = stderr || `Exit code: ${meta.exitCode}`;
+          base.status = 'RE';
+          base.stderr = stderr || undefined;
         }
         break;
 
       case 'TO':
-        result.error = 'Time Limit Exceeded';
-        result.status = 'TLE';
+        base.error = 'Time Limit Exceeded';
+        base.status = 'TLE';
         break;
 
       case 'SG':
-        result.error = `Runtime Error: ${this.getSignalName(meta.signal)}`;
-        result.status = 'RE';
+        if (meta.signal === 9 && meta.message?.includes('memory')) {
+          base.error = 'Memory Limit Exceeded';
+          base.status = 'MLE';
+        } else {
+          base.error = `Runtime Error: ${this.getSignalName(meta.signal)}`;
+          base.status = 'RE';
+          base.signal = meta.signal;
+          base.stderr = stderr || undefined;
+        }
         break;
 
       case 'XX':
-        result.error = 'Internal error';
-        result.status = 'SE';
+        base.error = 'Internal sandbox error';
+        base.status = 'SE';
         break;
 
       default:
-        result.error = meta.message || 'Unknown error';
-        result.status = 'SE';
+        base.error = meta.message || 'Unknown error';
+        base.status = 'SE';
     }
 
-    return result;
+    return base;
+  }
+
+  private buildResult(overrides: Partial<ExecutionResult>): ExecutionResult {
+    return {
+      success: false,
+      status: 'SE',
+      ...overrides,
+    };
+  }
+
+  private buildErrorResults(
+    testCases: TestCase[],
+    error: string,
+    status: ExecutionResult['status'],
+  ): ExecutionResult[] {
+    return testCases.map((tc) =>
+      this.buildResult({ testCaseName: tc.name, error, status }),
+    );
+  }
+
+
+  private async readBoxFile(boxPath: string, filename: string): Promise<string> {
+    try {
+      const { stdout } = await execAsync(`sudo cat ${boxPath}/box/${filename}`);
+      return stdout;
+    } catch {
+      return '';
+    }
+  }
+
+  private mergeConfig(partial: Partial<ExecutionConfig>): ExecutionConfig {
+    return { ...this.defaultConfig, ...partial };
+  }
+
+  private validateCode(code: string): void {
+    const maxSize = 64 * 1024;
+    if (code.length > maxSize) {
+      throw new Error('Code size exceeds 64KB limit');
+    }
+  }
+
+  private truncate(text: string, maxLength: number): string {
+    return text.length > maxLength
+      ? text.substring(0, maxLength) + '\n... (truncated)'
+      : text;
   }
 
   private getSignalName(signal: number): string {
-    const signals: { [key: number]: string } = {
+    const signals: Record<number, string> = {
       6: 'SIGABRT (Aborted)',
       8: 'SIGFPE (Floating point exception)',
       9: 'SIGKILL (Killed)',
@@ -669,40 +348,5 @@ export class ExecutionService {
       24: 'SIGXCPU (CPU time limit exceeded)',
     };
     return signals[signal] || `Signal ${signal}`;
-  }
-
-  private sanitizeCode(code: string): string {
-    const maxSize = 64 * 1024; // 64KB
-    if (code.length > maxSize) {
-      throw new Error('Code size exceeds maximum limit');
-    }
-    return code;
-  }
-
-  private formatCompileError(error: string): string {
-    // Limit error message size
-    const maxLength = 1000;
-    if (error.length > maxLength) {
-      return error.substring(0, maxLength) + '\n... (truncated)';
-    }
-    return error;
-  }
-
-  async healthCheck(): Promise<{
-    healthy: boolean;
-    stats: any;
-  }> {
-    try {
-      const stats = await this.boxManager.getPoolStats();
-      return {
-        healthy: stats.available > 0,
-        stats,
-      };
-    } catch (error) {
-      return {
-        healthy: false,
-        stats: { error: error.message },
-      };
-    }
   }
 }
