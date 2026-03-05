@@ -6,23 +6,23 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 
-import { ClientKafka } from '@nestjs/microservices';
-import { SubmissionDto } from 'src/dto';
 import { SubmissionQueuedEvent } from 'src/types';
-import { timestamp } from 'rxjs';
-import { CompressionTypes, Producer } from 'kafkajs';
+import { CompressionTypes, Kafka, Producer } from 'kafkajs';
 
 @Injectable()
 export class KafkaProducerService implements OnModuleInit, OnModuleDestroy {
   private logger: Logger;
   private producer: Producer;
-  constructor(@Inject('KAFKA_SERVICE') private kafkaClient: ClientKafka) {
+  constructor(@Inject('KAFKA_SERVICE') private kafkaClient: Kafka) {
     this.logger = new Logger('KafkaProducerService', { timestamp: true });
-    this.producer = this.kafkaClient.producer
+    this.producer = this.kafkaClient.producer({
+      idempotent: true,
+      maxInFlightRequests: 1,
+    });
   }
 
   async onModuleInit() {
-    await this.kafkaClient.connect();
+    await this.producer.connect();
     this.logger.log('Kafka connected and producer ready.');
   }
 
