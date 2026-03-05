@@ -1,46 +1,43 @@
 import { forwardRef, Module } from '@nestjs/common';
-import { KafkaService } from './kafka.service';
+import { KafkaProducerService } from './kafka-producer.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ClientsModule, Transport } from '@nestjs/microservices';
 import { KafkaConsumerService } from './kafkaConsumerService';
 import { ExecutionModule } from '../execution/execution.module';
 import { JudgeModule } from '../judge/judge.module';
 import { SubmissionsModule } from '../submissions/submissions.module';
+import { Kafka } from 'kafkajs';
+
+export const KAFKA_CLIENT = 'KAFKA_CLIENT';
 
 @Module({
   imports: [
     ExecutionModule,
     forwardRef(() => JudgeModule),
     forwardRef(() => SubmissionsModule),
-    ClientsModule.registerAsync([
-      {
-        name: 'KAFKA_SERVICE',
-        imports: [ConfigModule],
-        useFactory: async (configService: ConfigService) => {
-          const brokers = configService
-            .get<string>('KAFKA_BROKERS')!
-            ?.split(',')
-            .map(b => b.trim());
-
-          return {
-            transport: Transport.KAFKA,
-            options: {
-              client: {
-                clientId: configService.get<string>('KAFKA_CLIENT_ID')!,
-                brokers: brokers,
-              },
-              consumer: {
-                groupId: `${configService.get<string>('KAFKA_GROUP_ID')!}-producer`,
-              },
-            },
-          };
-        },
-        inject: [ConfigService],
-      },
-    ]),
+    ConfigModule,
   ],
-  providers: [KafkaService],
-  exports: [KafkaService],
+  providers: [
+    KafkaProducerService,
+    {
+      provide: KAFKA_CLIENT,
+      useFactory: (config: ConfigService): Kafka => {
+        return new Kafka({
+          clientId: config.get<string>('KAFKA_CLIENT_ID', 'judge-app'),
+          brokers: config
+            .get<string>('KAFKA_BROKERS', 'localhost:9092')
+            .split(','),
+          connectionTimeout: 3000,
+          requestTimeout: 30000,
+          retry: {
+            retries: 3,
+            initialRetryTime: 300,
+            factor: 2,
+          },
+        });
+      }
+    }
+  ],
+  exports: [KafkaProducerService],
   controllers: [KafkaConsumerService],
 })
 export class KafkaModule {}

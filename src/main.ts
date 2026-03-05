@@ -28,32 +28,11 @@ async function bootstrap() {
     }),
   });
 
-  const configService = app.get(ConfigService);
-  const brokers = configService
-    .get<string>('KAFKA_BROKERS')!
-    ?.split(',')
-    .map(b => b.trim());
-
-  app.connectMicroservice<MicroserviceOptions>({
-    transport: Transport.KAFKA,
-    options: {
-      client: {
-        clientId: configService.get("KAFKA_CLIENT_ID")!,
-        brokers: brokers,
-      },
-      consumer: {
-        groupId: configService.get("KAFKA_GROUP_ID")!,
-      },
-    }
-  });
 
   const config = new DocumentBuilder().setTitle('JudgeIt API').setVersion('1.0').build();
 
   const documentFactory = () => SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, documentFactory());
-
-  await app.startAllMicroservices();
-  console.log('Microservices started');
 
   // app.useGlobalPipes(
   //   new ValidationPipe({

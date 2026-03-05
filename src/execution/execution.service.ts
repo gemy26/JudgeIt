@@ -198,8 +198,6 @@ export class ExecutionService {
     }
   }
 
-  // ─── Meta File Parsing ─────────────────────────────────────────
-
   private async readMeta(metaFile: string): Promise<IsolateMeta | null> {
     try {
       await execAsync(`sudo chown $USER:$USER ${metaFile}`);
