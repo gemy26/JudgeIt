@@ -3,15 +3,15 @@ import { GetCurrentUserId } from '../common/decorators';
 import { SubmissionDto } from '../dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { SubmissionsService } from './submissions.service';
-import { KafkaService } from 'src/kafka/kafka.service';
-import { languages } from 'src/execution/language.config';
+import { KafkaProducerService } from 'src/kafka/kafka-producer.service';
+import { languages } from '../types/language.config'
 import { SubmissionQueuedEvent } from 'src/types';
 
 @Controller('submissions')
 export class SubmissionsController {
   constructor(
     private submissionsService: SubmissionsService,
-    private kafkaService: KafkaService,
+    private kafkaService: KafkaProducerService,
   ) {}
 
   @Post('/submit')
@@ -32,7 +32,8 @@ export class SubmissionsController {
       language: submission.language as 'cpp' | 'python',
     };
 
-    await this.kafkaService.sendMessage(queueEvent);
+    //TODO: Change the static topic name and get it from configs
+    await this.kafkaService.sendMessage('submissions', queueEvent);
     return submission;
   }
 
