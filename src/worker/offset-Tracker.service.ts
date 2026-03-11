@@ -15,8 +15,9 @@ export class OffsetTrackerService {
 
   // Commit an offset
   complete(partition: number, offset: string): string | null {
-    let set = this.inFlight.get(partition);
+    const set = this.inFlight.get(partition);
     if (!set) {
+      this.logger.warn(`complete() called on untracked partition=${partition}`);
       return null;
     }
 
@@ -26,16 +27,16 @@ export class OffsetTrackerService {
     }
 
     set.delete(BigInt(offset));
-    let lowestPending = BigInt(offset);
-    for (const partition of set) {
-      if (lowestPending >= partition) {
-        lowestPending = partition;
-      }
-    }
+    const lowestPending = [...set].reduce((min, val) =>
+      val < min ? val : min,
+    );
     const safeOffset = lowestPending - 1n;
-    let lastCommited = this.committed.get(partition) ?? -1n;
+    const lastCommited = this.committed.get(partition) ?? -1n;
     if (safeOffset > lastCommited) {
       this.committed.set(partition, lastCommited);
+      this.logger.debug(
+        `partition=${partition} offset=${offset} safe to commit up to ${safeOffset} (pending=${set.size})`,
+      );
       return safeOffset.toString();
     }
     return null;
@@ -44,11 +45,11 @@ export class OffsetTrackerService {
   // Add new message to be commited
   track(partition: number, offset: string) {
     if (!this.inFlight.has(partition)) {
+      this.logger.log(`Tracking new partition=${partition}`);
       this.inFlight.set(partition, new Set());
     }
     this.inFlight.get(partition)?.add(BigInt(offset));
   }
-
 
   getCommitted(partition: number): string | null {
     const val = this.committed.get(partition);
@@ -56,6 +57,7 @@ export class OffsetTrackerService {
   }
 
   clear(partition: number): void {
+    this.logger.log(`Clearing partition=${partition}`);
     this.inFlight.delete(partition);
     this.committed.delete(partition);
   }
