@@ -15,7 +15,7 @@ export class SemaphoreService {
     if (this.count > 0) {
       this.count--;
     } else {
-      return  new Promise<void>((resolve) => this.queue.push(resolve));
+      return new Promise<void>((resolve) => this.queue.push(resolve));
     }
   }
 
