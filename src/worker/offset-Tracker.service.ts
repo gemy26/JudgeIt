@@ -21,19 +21,20 @@ export class OffsetTrackerService {
       return null;
     }
 
+    set.delete(BigInt(offset));
+
     if (set.size === 0) {
       this.committed.set(partition, BigInt(offset));
       return offset;
     }
 
-    set.delete(BigInt(offset));
     const lowestPending = [...set].reduce((min, val) =>
       val < min ? val : min,
     );
     const safeOffset = lowestPending - 1n;
     const lastCommited = this.committed.get(partition) ?? -1n;
     if (safeOffset > lastCommited) {
-      this.committed.set(partition, lastCommited);
+      this.committed.set(partition, safeOffset);
       this.logger.debug(
         `partition=${partition} offset=${offset} safe to commit up to ${safeOffset} (pending=${set.size})`,
       );

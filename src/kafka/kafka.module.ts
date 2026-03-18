@@ -1,7 +1,6 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { KafkaProducerService } from './kafka-producer.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { KafkaConsumerService } from './kafkaConsumerService';
 import { ExecutionModule } from '../execution/execution.module';
 import { JudgeModule } from '../judge/judge.module';
 import { SubmissionsModule } from '../submissions/submissions.module';
@@ -34,10 +33,9 @@ export const KAFKA_CLIENT = 'KAFKA_CLIENT';
             factor: 2,
           },
         });
-      }
-    }
+      },
+    },
   ],
   exports: [KafkaProducerService],
-  controllers: [KafkaConsumerService],
 })
 export class KafkaModule {}

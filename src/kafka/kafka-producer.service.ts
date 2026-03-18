@@ -45,6 +45,9 @@ export class KafkaProducerService implements OnModuleInit, OnModuleDestroy {
       timeout: 30000,
     });
 
-    this.logger.log(`KafkaProducer send message of submission ${message.submissionId}`, message);
+    this.logger.log(
+      `KafkaProducer send message of submission ${message.submissionId}`,
+      message,
+    );
   }
 }
