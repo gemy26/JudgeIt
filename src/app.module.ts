@@ -11,6 +11,7 @@ import { AtGuard, RolesGuard } from './common/guards';
 import { KafkaModule } from './kafka/kafka.module';
 import { ExecutionModule } from './execution/execution.module';
 import { JudgeModule } from './judge/judge.module';
+import { WorkerModule } from './worker/worker.module';
 
 @Module({
   imports: [
@@ -26,17 +27,18 @@ import { JudgeModule } from './judge/judge.module';
     KafkaModule,
     ExecutionModule,
     JudgeModule,
+    WorkerModule,
   ],
   controllers: [],
   providers: [
     {
-      provide: APP_GUARD,   // Now its Globally all endpoints apply that Guard (AtGuard)
-      useClass: AtGuard
+      provide: APP_GUARD, // Now its Globally all endpoints apply that Guard (AtGuard)
+      useClass: AtGuard,
     },
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
-    }
-  ]
+    },
+  ],
 })
 export class AppModule {}

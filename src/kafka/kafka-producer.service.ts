@@ -8,12 +8,13 @@ import {
 
 import { SubmissionQueuedEvent } from 'src/types';
 import { CompressionTypes, Kafka, Producer } from 'kafkajs';
+import { KAFKA_CLIENT } from './kafka.constants';
 
 @Injectable()
 export class KafkaProducerService implements OnModuleInit, OnModuleDestroy {
   private logger: Logger;
   private producer: Producer;
-  constructor(@Inject('KAFKA_SERVICE') private kafkaClient: Kafka) {
+  constructor(@Inject(KAFKA_CLIENT) private kafkaClient: Kafka) {
     this.logger = new Logger('KafkaProducerService', { timestamp: true });
     this.producer = this.kafkaClient.producer({
       idempotent: true,

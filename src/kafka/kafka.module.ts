@@ -1,20 +1,11 @@
-import { forwardRef, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { KafkaProducerService } from './kafka-producer.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ExecutionModule } from '../execution/execution.module';
-import { JudgeModule } from '../judge/judge.module';
-import { SubmissionsModule } from '../submissions/submissions.module';
 import { Kafka } from 'kafkajs';
-
-export const KAFKA_CLIENT = 'KAFKA_CLIENT';
+import { KAFKA_CLIENT } from './kafka.constants';
 
 @Module({
-  imports: [
-    ExecutionModule,
-    forwardRef(() => JudgeModule),
-    forwardRef(() => SubmissionsModule),
-    ConfigModule,
-  ],
+  imports: [ConfigModule],
   providers: [
     KafkaProducerService,
     {
@@ -34,8 +25,9 @@ export const KAFKA_CLIENT = 'KAFKA_CLIENT';
           },
         });
       },
+      inject: [ConfigService],
     },
   ],
-  exports: [KafkaProducerService],
+  exports: [KafkaProducerService, KAFKA_CLIENT],
 })
-export class KafkaModule {}
+export class KafkaModule { }

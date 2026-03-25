@@ -1,18 +1,21 @@
 import { forwardRef, Module } from '@nestjs/common';
-import { WorkerManagerService } from '../worker/worker-manager.service';
 import { ExecutionModule } from 'src/execution/execution.module';
 import { ProblemsModule } from '../problems/problems.module';
-import { ProblemsService } from '../problems/problems.service';
 import { SubmissionsModule } from '../submissions/submissions.module';
+import { JudgeService } from './judge.service';
 import { TestCasesService } from './test-cases/test-cases.service';
+import { StorageModule } from '../storage/storage.module';
+import { CachingModule } from '../cache/cachingModule';
 
 @Module({
   imports: [
     ExecutionModule,
     ProblemsModule,
+    StorageModule,
+    CachingModule,
     forwardRef(() => SubmissionsModule),
   ],
-  providers: [WorkerManagerService, ProblemsService, TestCasesService],
-  exports: [WorkerManagerService],
+  providers: [JudgeService, TestCasesService],
+  exports: [JudgeService],
 })
-export class JudgeModule {}
+export class JudgeModule { }

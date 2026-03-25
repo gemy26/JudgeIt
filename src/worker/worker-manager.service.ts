@@ -6,7 +6,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { SemaphoreService } from './semaphore.service';
-import { KAFKA_CLIENT } from '../kafka/kafka.module';
+import { KAFKA_CLIENT } from '../kafka/kafka.constants';
 import { Consumer, Kafka } from 'kafkajs';
 import { ConfigService } from '@nestjs/config';
 import { JudgeService } from '../judge/judge.service';
@@ -58,7 +58,7 @@ export class WorkerManagerService implements OnModuleInit, OnModuleDestroy {
     //Start consuming
     await this.consumer.run({
       autoCommit: false,
-      eachMessage: async ({ topic, partition, message}) => {
+      eachMessage: async ({ topic, partition, message }) => {
         const offset = message.offset;
         this.offsetTracker.track(partition, offset);
         await this.acquireOrPause(topic);
@@ -74,11 +74,11 @@ export class WorkerManagerService implements OnModuleInit, OnModuleDestroy {
     // If no slots available, pause the partition so Kafka stops pushing messages
     if (!this.isPaused && this.semaphore.available === 0) {
       this.isPaused = true;
-      this.consumer.pause([{topic}])
+      this.consumer.pause([{ topic }]);
       this.logger.debug(`topic paused — semaphore full`);
     }
 
-    await this.semaphore.acquire()
+    await this.semaphore.acquire();
   }
 
   private async processMessage(topic, partition, offset, message) {
@@ -87,16 +87,17 @@ export class WorkerManagerService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    try{
-      const payload = JSON.parse(message.toString())
-      const results: string [] = await this.judgeService.judgeSubmission(payload);
-      this.logger.debug(`Judge message sent with : ${results.length} results`);
-    }catch(err){
-      this.logger.error(
-        `Error while processing submission ${err}`,
+    try {
+      const payload = JSON.parse(message.toString());
+      const results: string[] = await this.judgeService.judgeSubmission(
+        payload,
+        this.semaphore.available,
       );
+      this.logger.debug(`Judge message sent with : ${results.length} results`);
+    } catch (err) {
+      this.logger.error(`Error while processing submission ${err}`);
       //TODO: Push to dlq or change submission state
-    }finally{
+    } finally {
       this.semaphore.release();
       if (this.isPaused && this.semaphore.available > 0) {
         this.consumer.resume([{ topic, partitions: [partition] }]);

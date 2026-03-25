@@ -21,7 +21,10 @@ export class StorageService {
     });
   }
 
-  private async listAllObjects(bucket: string, prefix: string): Promise<[]> {
+  private async listObjectKeys(
+    bucket: string,
+    prefix: string,
+  ): Promise<string[]> {
     const input = {
       Bucket: bucket,
       Prefix: prefix,
@@ -32,8 +35,11 @@ export class StorageService {
     return objectsKeys;
   }
 
-  async getAllObjectsData(bucket: string, prefix: string) {
-    const keys = await this.listAllObjects(bucket, prefix);
+  async fetchObjectContents(
+    bucket: string,
+    prefix: string,
+  ): Promise<{ key: string; content: string }[]> {
+    const keys = await this.listObjectKeys(bucket, prefix);
     const objectsData = await Promise.all(
       keys.map(async (key) => {
         const data = await this.client.send(
@@ -43,7 +49,7 @@ export class StorageService {
           }),
         );
         const content = await data.Body.transformToString();
-        return content;
+        return { key, content };
       }),
     );
     return objectsData;

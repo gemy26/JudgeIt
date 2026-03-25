@@ -14,7 +14,7 @@ import { TestCasesService } from './test-cases/test-cases.service';
 
 @Injectable()
 export class JudgeService {
-  private readonly logger = new Logger(JudgeService.name);
+  private readonly logger = new Logger(JudgeService.name, { timestamp: true });
 
   constructor(
     private executionService: ExecutionService,
