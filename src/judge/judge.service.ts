@@ -8,111 +8,141 @@ import {
   SubmissionResult,
   TestCase,
 } from 'src/types';
-import { ProblemsService } from '../../problems/problems.service';
-import { SubmissionsService } from '../../submissions/submissions.service';
-// import { TestCaseService } from '../test-case.service';
+import { ProblemsService } from '../problems/problems.service';
+import { SubmissionsService } from '../submissions/submissions.service';
+import { TestCasesService } from './test-cases/test-cases.service';
 
 @Injectable()
 export class JudgeService {
-    private readonly logger = new Logger(JudgeService.name);
+  private readonly logger = new Logger(JudgeService.name);
 
-    constructor(
-      private executionService: ExecutionService,
-      private problemsService: ProblemsService,
-      private submssionsService: SubmissionsService,
-      // private testCaseService: TestCaseService,
-    ) { }
+  constructor(
+    private executionService: ExecutionService,
+    private problemsService: ProblemsService,
+    private submssionsService: SubmissionsService,
+    private testCaseService: TestCasesService,
+  ) {}
 
-    async judgeSubmission(submissionDetails: SubmissionQueuedEvent): Promise<string []> {
-        this.logger.debug(`Judging submission ${submissionDetails.submissionId}`);
+  async judgeSubmission(
+    submissionDetails: SubmissionQueuedEvent,
+    boxId: number,
+  ): Promise<string[]> {
+    const { submissionId, problemId } = submissionDetails;
+    this.logger.log(
+      `START submissionId=${submissionId} problemId=${problemId} boxId=${boxId}`,
+    );
 
-        // Fetch problem details and test cases in parallel
-        const problem = await this.problemsService.getProblemById(submissionDetails.problemId);
-        const [tests, problemDetails] = await Promise.all([
-          // this.testCaseService.getTestCases(submissionDetails.problemId, problem!.slug),
-          this.getProblemDetails(submissionDetails.problemId),
-        ]);
+    const [testCases, problemDetails] = await Promise.all([
+      this.testCaseService.getTestCases(problemId),
+      this.getProblemDetails(problemId),
+    ]);
 
-        const config: Partial<ExecutionConfig> = {
-            timeLimit: problemDetails.TimeLimit,
-            memoryLimit: problemDetails.MemoryLimit * 1000,
-            stackLimit: problemDetails.MemoryLimit * 1000,
-            processes: 1,
-        };
+    this.logger.debug(
+      `Loaded ${testCases.length} test cases | timeLimit=${problemDetails.TimeLimit} memoryLimit=${problemDetails.MemoryLimit}MB`,
+    );
 
-        let results: ExecutionResult[] = [];
+    const config: Partial<ExecutionConfig> = {
+      timeLimit: problemDetails.TimeLimit,
+      memoryLimit: problemDetails.MemoryLimit * 1000,
+      stackLimit: problemDetails.MemoryLimit * 1000,
+      processes: 1,
+    };
 
-        results = await this.executionService.executeBatch(
-          submissionDetails.code,
-          submissionDetails.language,
-          tests,
-          config
+    this.logger.debug(
+      `Executing batch for submissionId=${submissionId} language=${submissionDetails.language}`,
+    );
+    const results = await this.executionService.executeBatch(
+      boxId,
+      submissionDetails.code,
+      submissionDetails.language,
+      testCases,
+      config,
+    );
+    this.logger.debug(
+      `Batch execution complete submissionId=${submissionId} results=${results.length}`,
+    );
+
+    const verdicates = this.validateResults(results, testCases);
+    this.logger.debug(
+      `Verdicates submissionId=${submissionId} verdicates=[${verdicates.join(', ')}]`,
+    );
+
+    let finalVerdicate = 'ACC';
+    if (
+      verdicates.length !== testCases.length ||
+      verdicates[verdicates.length - 1] !== 'ACC'
+    ) {
+      finalVerdicate = verdicates[verdicates.length - 1];
+    }
+
+    this.logger.log(
+      `FINAL submissionId=${submissionId} verdict=${finalVerdicate}`,
+    );
+
+    await this.submssionsService.updateSubmission(submissionId, finalVerdicate);
+    this.logger.debug(`Updated submission record submissionId=${submissionId}`);
+
+    const submissionResults: SubmissionResult[] = [];
+    for (let i = 0; i < verdicates.length; i++) {
+      submissionResults.push({
+        submissionId,
+        verdict: verdicates[i],
+        executionTime: results[i].time!,
+        memoryUsed: results[i].memory!,
+        testcaseName: testCases[i].name,
+        createdAt: new Date(),
+      });
+    }
+
+    await this.submssionsService.addSubmissionResults(submissionResults);
+    this.logger.debug(
+      `Stored ${submissionResults.length} result records for submissionId=${submissionId}`,
+    );
+
+    return verdicates;
+  }
+
+  async getProblemDetails(problemId: number): Promise<ProblemDetails> {
+    return await this.problemsService.getProblemDetails(problemId);
+  }
+
+  private validateResults(
+    results: ExecutionResult[],
+    tests: TestCase[],
+  ): string[] {
+    const verdicates: string[] = [];
+
+    for (let i = 0; i < results.length; i++) {
+      if (results[i].status !== 'OK') {
+        this.logger.warn(
+          `Test ${i + 1}/${tests.length} failed with status=${results[i].status} testcase=${tests[i].name}`,
         );
+        verdicates.push(results[i].status);
+        break;
+      }
 
+      const expected = this.normalizeOutputStrict(tests[i].output!);
+      const actual = this.normalizeOutputStrict(results[i].output!);
+      const verdict = expected === actual ? 'ACC' : 'WA';
 
-        const verdicates = await this.validateResults(results, tests);
-
-        let finalVerdicate = "ACC";
-        if(verdicates?.length !== tests.length || verdicates[verdicates.length - 1] !== "ACC") {
-          finalVerdicate = verdicates[verdicates.length - 1];
-        }
-
-        await this.submssionsService.updateSubmission(submissionDetails.submissionId, finalVerdicate);
-
-        let submissionResults: SubmissionResult[] = [];
-        for(let i = 0; i < verdicates.length; i ++){
-          const submissionResult: SubmissionResult = {
-            submissionId: submissionDetails.submissionId,
-            verdict: verdicates[i],
-            executionTime: results[i].time!,
-            memoryUsed: results[i].memory!,
-            testcaseName: tests[i].name,
-            createdAt: new Date()
-          };
-          submissionResults.push(submissionResult);
-        }
-
-        await this.submssionsService.addSubmissionResults(submissionResults);
-
-        this.logger.debug(`Submission ${submissionDetails.submissionId} judged: ${finalVerdicate}`);
-
-        return verdicates;
+      this.logger.debug(
+        `Test ${i + 1}/${tests.length} testcase=${tests[i].name} verdict=${verdict}`,
+      );
+      verdicates.push(verdict);
     }
 
-    async getProblemDetails(problemId: number): Promise<ProblemDetails> {
-        return await this.problemsService.getProblemDetails(problemId);
-    }
+    return verdicates;
+  }
 
-    async validateResults(results: ExecutionResult[], tests: TestCase[]): Promise<string[]> {
-        const verdicates: string[] = [];
-        for (let i = 0; i < results.length; i ++) {
-            if (results[i].status !== 'OK') {
-                verdicates.push(results[i].status);
-                break;
-            }
+  private normalizeOutputStrict(output: string): string {
+    if (!output) return '';
 
-            const expectedResult = this.normalizeOutputStrict(tests[i].output!);
-            const actualResult = this.normalizeOutputStrict(results[i].output!);
-
-
-            if(expectedResult === actualResult) {
-                verdicates.push("ACC");
-            } else {
-                verdicates.push("WA");
-            }
-        }
-        return verdicates;
-    }
-
-    private normalizeOutputStrict(output: string): string {
-        if (!output) return '';
-
-        return output
-            .replace(/\r\n/g, '\n')
-            .replace(/\r/g, '\n')
-            .trim()
-            .split(/\s+/)                     
-            .filter(token => token.length > 0)
-            .join(' ');                       
-    }
+    return output
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .trim()
+      .split(/\s+/)
+      .filter((token) => token.length > 0)
+      .join(' ');
+  }
 }
