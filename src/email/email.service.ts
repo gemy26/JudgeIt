@@ -1,15 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import { ConfigService } from '@nestjs/config';
-import { Transporter } from 'nodemailer';
 import { MailDto } from '../dto';
 import path from 'node:path';
 import * as fs from 'node:fs';
 import * as Handlebars from 'handlebars';
 
-
 @Injectable()
 export class EmailService {
+  private logger: Logger = new Logger(EmailService.name, { timestamp: true });
   constructor(private config: ConfigService) {}
 
   mailTransport() {
@@ -51,7 +50,9 @@ export class EmailService {
       : html;
 
     const mailOptions: nodemailer.SendMailOptions = {
-      from: from || `"${this.config.get('APP_NAME')}" <${this.config.get('EMAIL_USER')}>`,
+      from:
+        from ||
+        `"${this.config.get('APP_NAME')}" <${this.config.get('EMAIL_USER')}>`,
       to,
       subject,
       html: finalHtml,
@@ -60,9 +61,11 @@ export class EmailService {
 
     try {
       const result = await transporter.sendMail(mailOptions);
+      this.logger.log('Email sent Successfully');
+      this.logger.debug('Email Info', result);
       return result;
     } catch (err) {
-      console.error('❌ Failed to send email:', err);
+      this.logger.error(' Failed to send email:', err);
       throw err;
     }
   }

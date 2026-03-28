@@ -203,6 +203,7 @@ export class AuthService {
     return await this.usersService.changePass(user.id, newPassHash);
   }
 
+  //TODO: Refactor and use Strategy Pattern
   async sendPasswordResetEmail(email: string) { //forget password
     const user = await this.usersService.findByEmail(email);
     if(!user) {
@@ -221,7 +222,7 @@ export class AuthService {
       console.error('ERROR STACK:', err.stack);
     }
 
-    const url = `http://localhost:3000/auth/reset-password/?token=${token}`;
+    const url = `http://${this.config.get<string>('HOST')!}/auth/reset-password/?token=${token}`;
 
     const resetPasswordDto: MailDto = {
       to: email,
