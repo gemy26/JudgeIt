@@ -24,6 +24,7 @@ import cookieParser from 'cookie-parser';
     PrismaModule,
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: `.env.${process.env.NODE_ENV}`,
     }),
     AuthModule,
     UsersModule,
