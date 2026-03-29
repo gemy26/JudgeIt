@@ -1,5 +1,5 @@
 {
-  "name": "auth-app",
+  "name": "JudgeIt",
   "version": "0.0.1",
   "description": "",
   "author": "",
@@ -18,8 +18,8 @@
     "test:cov": "cross-env NODE_ENV=test jest --coverage",
     "test:debug": "cross-env NODE_ENV=test node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "cross-env NODE_ENV=test jest --config ./test/jest-e2e.json --maxWorkers=1",
-    "docker:dev": "docker compose up -d",
-    "docker:test": "docker compose -f docker-compose.test.yml -f docker-compose.yml--profile test up -d",
+    "docker:dev": "docker compose -f docker-compose.yml --profile dev up -d --wait",
+    "docker:test": "docker compose -f docker-compose.yml -f docker-compose.test.yml --profile test up -d --wait",
     "docker:test:down": "docker compose -f docker-compose.yml -f docker-compose.test.yml --profile test down -v",
     "db:migrate:dev": "dotenv -e .env.developement -- npx prisma migrate dev",
     "db:migrate:test": "dotenv -e .env.test -- npx prisma migrate deploy",

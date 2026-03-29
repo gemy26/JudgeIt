@@ -16,11 +16,11 @@ import { KAFKA_CLIENT } from './kafka.constants';
           brokers: config
             .get<string>('KAFKA_BROKERS', 'localhost:9092')
             .split(','),
-          connectionTimeout: 3000,
+          connectionTimeout: 30000,
           requestTimeout: 30000,
           retry: {
-            retries: 3,
-            initialRetryTime: 300,
+            retries: 10,
+            initialRetryTime: 1000,
             factor: 2,
           },
         });
