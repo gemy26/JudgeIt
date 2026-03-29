@@ -99,7 +99,7 @@ export class WorkerManagerService implements OnModuleInit, OnModuleDestroy {
       //TODO: Push to dlq or change submission state
     } finally {
       this.semaphore.release();
-      if (this.isPaused && this.semaphore.available > 0) {
+      if (this.isPaused) {
         this.consumer.resume([{ topic, partitions: [partition] }]);
         this.isPaused = false;
         this.logger.debug(`Partition ${partition} resumed`);
