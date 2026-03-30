@@ -207,6 +207,7 @@ export class AuthService {
   async sendPasswordResetEmail(email: string) { //forget password
     const user = await this.usersService.findByEmail(email);
     if(!user) {
+      //TODO: Refactor to Forbidden
       throw new NotFoundException("User not found");
     }
 
