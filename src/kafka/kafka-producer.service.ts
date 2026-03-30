@@ -35,7 +35,7 @@ export class KafkaProducerService implements OnModuleInit, OnModuleDestroy {
   async sendMessage(topic: string, message: SubmissionQueuedEvent) {
     await this.producer.send({
       topic,
-      compression: CompressionTypes.Snappy,
+      compression: CompressionTypes.GZIP,
       messages: [
         {
           value: JSON.stringify(message),
