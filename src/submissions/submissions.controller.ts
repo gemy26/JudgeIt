@@ -73,8 +73,8 @@ export class SubmissionsController {
   @Get('/filtered')
   async getfilteredSubmissions(
     @GetCurrentUserId(ParseIntPipe) userId: number,
-    @Query('verdict') verdict?: string,
     @Query() { limit, offset }: PaginationDto,
+    @Query('verdict') verdict?: string,
   ) {
     this.logger.log(
       `Fetching filtered submissions for user ${userId} (verdict=${verdict})`,
