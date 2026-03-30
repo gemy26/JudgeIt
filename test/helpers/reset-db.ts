@@ -10,5 +10,13 @@ export async function resetDatabase() {
     prisma.problem.deleteMany(),
     prisma.user.deleteMany(),
   ]);
+  const sequences = await prisma.$queryRaw<{ sequencename: string }[]>`
+    SELECT sequencename FROM pg_sequences WHERE schemaname = 'public'
+  `;
+  for (const { sequencename } of sequences) {
+    await prisma.$executeRawUnsafe(
+      `ALTER SEQUENCE "${sequencename}" RESTART WITH 1`,
+    );
+  }
 }
 export { prisma as testPrisma };
