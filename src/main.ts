@@ -8,11 +8,12 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: WinstonModule.createLogger({
+      level: 'silly',
       transports: [
         new winston.transports.Console({
           format: winston.format.combine(
             winston.format.timestamp(),
-            winston.format.colorize(),
+            winston.format.colorize({ all: true }),
             winston.format.printf(({ timestamp, level, message, context }) => {
               return `${timestamp} [${context || 'App'}] ${level}: ${message}`;
             }),
@@ -20,7 +21,7 @@ async function bootstrap() {
         }),
         new winston.transports.File({
           filename: 'logs/error.log',
-          level: 'error',
+          level: 'silly',
         }),
       ],
     }),
