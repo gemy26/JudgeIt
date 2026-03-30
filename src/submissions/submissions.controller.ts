@@ -1,56 +1,99 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Logger,
+  Param,
+  ParseIntPipe,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { GetCurrentUserId } from '../common/decorators';
 import { SubmissionDto } from '../dto';
-import { PrismaService } from '../prisma/prisma.service';
 import { SubmissionsService } from './submissions.service';
 import { KafkaProducerService } from 'src/kafka/kafka-producer.service';
-import { languages } from '../types/language.config'
-import { SubmissionQueuedEvent } from 'src/types';
+import { SubmissionQueuedEvent, PaginationDto } from 'src/types';
+import { ConfigService } from '@nestjs/config';
 
 @Controller('submissions')
 export class SubmissionsController {
+  private logger = new Logger(SubmissionsController.name, { timestamp: true });
   constructor(
     private submissionsService: SubmissionsService,
     private kafkaService: KafkaProducerService,
+    private config: ConfigService,
   ) {}
 
   @Post('/submit')
-  async submit(@Body() dto: SubmissionDto, @GetCurrentUserId() id: string){
+  async submit(@Body() dto: SubmissionDto, @GetCurrentUserId() userId: string) {
+    this.logger.log(`Incoming submission from user ${userId}`);
 
-    console.log(id);
+    const submission = await this.submissionsService.addSubmission(
+      dto,
+      parseInt(userId),
+    );
+    this.logger.debug(`Submission created with ID: ${submission.id}`);
 
-    const submission = await this.submissionsService.addSubmission(dto, parseInt(id));
-
-    console.log("Submission:=> ", submission);
-
-    const queueEvent: SubmissionQueuedEvent = {
+    const submissionQueuedEvent: SubmissionQueuedEvent = {
       submissionId: submission.id,
       code: dto.sourceCode,
       problemId: submission.problem_id,
       timestamp: new Date(),
-      userId: id,
+      userId: userId,
       language: submission.language as 'cpp' | 'python',
     };
 
-    //TODO: Change the static topic name and get it from configs
-    await this.kafkaService.sendMessage('submissions', queueEvent);
+    this.logger.log(`Sending submission ${submission.id} to Kafka topic`);
+    await this.kafkaService.sendMessage(
+      this.config.get<string>('KAFKA_SUBMISSIONS_TOPIC')!,
+      submissionQueuedEvent,
+    );
+    this.logger.log(`Submission ${submission.id} queued successfully`);
+
     return submission;
   }
 
-  @Get('/user-submissions')
-  async getUserSubmissions(@GetCurrentUserId() id: string){
-    const userId = parseInt(id);
-    return this.submissionsService.getAllSubmissions(userId, undefined);
-  }
+  @Get('/userSubmissions')
+  async getUserSubmissions(
+    @GetCurrentUserId(ParseIntPipe) userId: number,
+    @Query() { limit, offset }: PaginationDto,
+  ) {
+    this.logger.log(
+      `Fetching submissions for user ${userId} (limit=${limit}, offset=${offset})`,
+    );
 
-  @Get('/:submission_id')
-  async getSubmission(@Param() submissionId: string){
-    return this.submissionsService.getSubmissionDetails(parseInt(submissionId));
+    return this.submissionsService.getAllSubmissions(
+      userId,
+      undefined,
+      limit,
+      offset,
+    );
   }
 
   @Get('/filtered')
-  async getfilteredSubmissions(@GetCurrentUserId() id : string, @Query() verdicate: string){
-    const userId = parseInt(id);
-    return this.submissionsService.getAllSubmissions(userId, verdicate);
+  async getfilteredSubmissions(
+    @GetCurrentUserId(ParseIntPipe) userId: number,
+    @Query('verdict') verdict?: string,
+    @Query() { limit, offset }: PaginationDto,
+  ) {
+    this.logger.log(
+      `Fetching filtered submissions for user ${userId} (verdict=${verdict})`,
+    );
+
+    return this.submissionsService.getAllSubmissions(
+      userId,
+      verdict,
+      limit,
+      offset,
+    );
+  }
+
+  @Get('/:submissionId')
+  async getSubmission(
+    @Param('submissionId', ParseIntPipe) submissionId: number,
+  ) {
+    this.logger.log(`Fetching submission details for ID ${submissionId}`);
+
+    return this.submissionsService.getSubmissionDetails(submissionId);
   }
 }

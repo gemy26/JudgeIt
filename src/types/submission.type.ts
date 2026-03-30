@@ -1,3 +1,5 @@
+import { PaginatedResponse } from './Pagination';
+
 export interface SubmissionResponse {
   id: number;
   user_id: number;
@@ -17,3 +19,5 @@ export interface SubmissionResponse {
     title: string;
   };
 }
+
+export type SubmissionListResponse = PaginatedResponse<SubmissionResponse>;

@@ -1,6 +1,10 @@
-import { Type } from "class-transformer"
-import { IsNumber, IsString } from "class-validator"
-
+import { Type } from 'class-transformer';
+import { IsEnum, IsNumber, IsString } from 'class-validator';
+//TODO: Refactor to be an id
+export enum Language {
+  CPP = 'cpp',
+  PYTHON = 'python',
+}
 export class SubmissionDto {
   @Type(() => Number)
   @IsNumber()
@@ -9,6 +13,6 @@ export class SubmissionDto {
   @IsString()
   sourceCode: string;
 
-  @IsString()
-  language: string; //TODO: should be an enum or env
+  @IsEnum(Language)
+  language: Language;
 }
