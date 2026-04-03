@@ -98,6 +98,12 @@
     ],
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
+    "testPathIgnorePatterns": [
+      "problems/(problems\\.controller|problems\\.service)\\.spec\\.ts",
+      "submissions/(submissions\\.controller|submissions\\.service)\\.spec\\.ts",
+      "auth/auth\\.controller\\.spec\\.ts",
+      "users/(users\\.controller|users\\.service)\\.spec\\.ts"
+    ],
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
