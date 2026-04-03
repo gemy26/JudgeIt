@@ -65,12 +65,13 @@ export class WorkerManagerService implements OnModuleInit, OnModuleDestroy {
           eachMessage: async ({ topic, partition, message }) => {
             const offset = message.offset;
             this.offsetTracker.track(partition, offset);
-            await this.acquireOrPause(topic);
+            const boxId = await this.acquireOrPause(topic);
             this.processMessage(
               topic,
               partition,
               offset,
               message.value,
+              boxId,
             ).catch((err) =>
               this.logger.error(`Unhandled error on offset ${offset}`, err),
             );
@@ -83,9 +84,7 @@ export class WorkerManagerService implements OnModuleInit, OnModuleDestroy {
           `Kafka consumer startup attempt ${attempt}/${maxRetries} failed: ${err.message}`,
         );
         if (attempt === maxRetries) {
-          this.logger.error(
-            'Kafka consumer failed to start after all retries',
-          );
+          this.logger.error('Kafka consumer failed to start after all retries');
           throw err;
         }
         await new Promise((r) => setTimeout(r, 2000 * attempt));
@@ -95,16 +94,23 @@ export class WorkerManagerService implements OnModuleInit, OnModuleDestroy {
 
   private async acquireOrPause(topic: string) {
     // If no slots available, pause the partition so Kafka stops pushing messages
+    this.semaphore.status();
     if (!this.isPaused && this.semaphore.available === 0) {
       this.isPaused = true;
       this.consumer.pause([{ topic }]);
       this.logger.debug(`topic paused — semaphore full`);
     }
 
-    await this.semaphore.acquire();
+    return await this.semaphore.acquire();
   }
 
-  private async processMessage(topic, partition, offset, message) {
+  private async processMessage(
+    topic,
+    partition,
+    offset,
+    message,
+    boxId: number,
+  ) {
     if (!message) {
       this.logger.warn(`Empty message at offset ${offset}, skipping`);
       return;
@@ -114,14 +120,14 @@ export class WorkerManagerService implements OnModuleInit, OnModuleDestroy {
       const payload = JSON.parse(message.toString());
       const results: string[] = await this.judgeService.judgeSubmission(
         payload,
-        this.semaphore.available,
+        boxId,
       );
       this.logger.debug(`Judge message sent with : ${results.length} results`);
     } catch (err) {
-      this.logger.error(`Error while processing submission ${err}`);
+      this.logger.error('Error while processing submission', err.stack);
       //TODO: Push to dlq or change submission state
     } finally {
-      this.semaphore.release();
+      this.semaphore.release(boxId);
       if (this.isPaused) {
         this.consumer.resume([{ topic, partitions: [partition] }]);
         this.isPaused = false;
@@ -130,13 +136,19 @@ export class WorkerManagerService implements OnModuleInit, OnModuleDestroy {
 
       const safeOffset = this.offsetTracker.complete(partition, offset);
       if (safeOffset !== null) {
-        await this.consumer.commitOffsets([
-          {
-            topic,
-            partition,
-            offset: (BigInt(safeOffset) + 1n).toString(),
-          },
-        ]);
+        try {
+          await this.consumer.commitOffsets([
+            {
+              topic,
+              partition,
+              offset: (BigInt(safeOffset) + 1n).toString(),
+            },
+          ]);
+        } catch (commitErr) {
+          this.logger.warn(
+            `Offset commit failed for ${offset}: ${commitErr.message}`,
+          );
+        }
       }
     }
   }
