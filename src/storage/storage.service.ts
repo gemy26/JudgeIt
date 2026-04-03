@@ -13,10 +13,10 @@ export class StorageService {
   constructor(private config: ConfigService) {
     this.logger = new Logger(StorageService.name, { timestamp: true });
     this.client = new S3Client({
-      region: config.get<string>('S3_REGION')!,
+      region: this.config.get<string>('S3_REGION')!,
       credentials: {
-        accessKeyId: config.get<string>('S3_ACCESS_KEY_ID')!,
-        secretAccessKey: config.get<string>('S3_SECRET_ACCESS_KEY')!,
+        accessKeyId: this.config.get<string>('S3_ACCESS_KEY_ID')!,
+        secretAccessKey: this.config.get<string>('S3_SECRET_ACCESS_KEY')!,
       },
     });
   }
@@ -39,7 +39,9 @@ export class StorageService {
     bucket: string,
     prefix: string,
   ): Promise<{ key: string; content: string }[]> {
-    const keys = await this.listObjectKeys(bucket, prefix);
+    const keys = (await this.listObjectKeys(bucket, prefix)).filter(
+      (key) => !key.endsWith('/'),
+    );
     const objectsData = await Promise.all(
       keys.map(async (key) => {
         const data = await this.client.send(
