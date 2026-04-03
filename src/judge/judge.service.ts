@@ -49,7 +49,7 @@ export class JudgeService {
     };
 
     this.logger.debug(
-      `Executing batch for submissionId=${submissionId} language=${submissionDetails.language}`,
+      `Executing batch for submissionId=${submissionId} language=${submissionDetails.language}  testCases=${testCases}`,
     );
     const results = await this.executionService.executeBatch(
       boxId,
@@ -68,11 +68,11 @@ export class JudgeService {
     );
 
     let finalVerdicate = 'ACC';
-    if (
-      verdicates.length !== testCases.length ||
-      verdicates[verdicates.length - 1] !== 'ACC'
-    ) {
-      finalVerdicate = verdicates[verdicates.length - 1];
+    for (const verdicate of verdicates) {
+      if (verdicate !== 'ACC') {
+        finalVerdicate = verdicate;
+        break;
+      }
     }
 
     this.logger.log(
