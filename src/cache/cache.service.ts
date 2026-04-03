@@ -5,6 +5,7 @@ import type { Cache } from 'cache-manager';
 @Injectable()
 export class CacheService {
   private readonly logger = new Logger(CacheService.name, { timestamp: true });
+  private readonly inFlight = new Map<string, Promise<unknown>>();
 
   constructor(@Inject(CACHE_MANAGER) private readonly cache: Cache) {}
 
@@ -38,21 +39,29 @@ export class CacheService {
       return cached;
     }
 
-    this.logger.debug(`FETCH key=${key}`);
-    try {
-      const newData = await fetchFn();
-      if (newData !== null) {
-        await this.set(key, newData, ttl);
-      } else {
-        this.logger.warn(`FETCH returned null, skipping cache key=${key}`);
-      }
-      return newData;
-    } catch (error) {
-      this.logger.error(
-        `FETCH failed key=${key}`,
-        error instanceof Error ? error.stack : error,
-      );
-      throw error;
+    if (this.inFlight.has(key)) {
+      this.logger.debug(`COALESCED key=${key}`);
+      return this.inFlight.get(key) as Promise<T | null>;
     }
+
+    this.logger.debug(`FETCH key=${key}`);
+    const promise = fetchFn()
+      .then(async (data) => {
+        if (data !== null) {
+          await this.set(key, data, ttl);
+        } else {
+          this.logger.warn(`FETCH returned null, skipping cache key=${key}`);
+        }
+        return data;
+      })
+      .catch((error) => {
+        this.logger.error(`FETCH failed key=${key}`, error?.stack ?? error);
+        throw error;
+      })
+      .finally(() => {
+        this.inFlight.delete(key);
+      });
+    this.inFlight.set(key, promise);
+    return promise;
   }
 }
