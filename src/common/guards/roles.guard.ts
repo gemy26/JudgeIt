@@ -1,48 +1,70 @@
-import { CanActivate, ExecutionContext, GoneException, Inject, Injectable } from "@nestjs/common";
-import { Reflector } from "@nestjs/core";
-import { Observable } from "rxjs";
-import { Role } from "../enums";
-import { ROLES_KEY } from "../decorators";
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { Observable } from 'rxjs';
+import { ROLES_KEY } from '../decorators';
+import { Role } from '@prisma/client';
 
 @Injectable()
-export class RolesGuard implements CanActivate{
-    constructor(private reflector: Reflector){}
+export class RolesGuard implements CanActivate {
+  private logger: Logger = new Logger(RolesGuard.name, { timestamp: true });
+  constructor(private reflector: Reflector) {}
 
-    canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
+  canActivate(
+    context: ExecutionContext,
+  ): boolean | Promise<boolean> | Observable<boolean> {
+    const handler = context.getHandler();
+    const controller = context.getClass();
+    const route = `${controller.name}.${handler.name}`;
 
-        console.log("Here is RolesGuard")
+    const isPublic = this.reflector.getAllAndOverride<Role[]>('isPublic', [
+      handler,
+      controller,
+    ]);
 
-        const requiredRoles  = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, [
-            context.getHandler(),
-            context.getClass(),
-        ]);
-
-        const isPublic  = this.reflector.getAllAndOverride<Role[]>('isPublic', [
-            context.getHandler(),
-            context.getClass()
-        ]);
-
-        if(isPublic) return true;
-        if(!requiredRoles) return true;
-
-        const req = context.switchToHttp().getRequest();
-        const user = req?.user;
-
-        console.log("ROLESGuard");
-        console.log("User => ", user);
-        
-        if(!user) return false;
-
-        const rolesToCheck = requiredRoles && requiredRoles.length > 0 
-            ? requiredRoles 
-            : [Role.USER];
-       
-        console.log(rolesToCheck);
-        
-        const result = rolesToCheck.some((role) => user.roles?.includes(role));
-
-        console.log(result);
-
-        return result;
+    if (isPublic) {
+      this.logger.debug(`[${route}] Public route — skipping role check`);
+      return true;
     }
-}   
+
+    const requiredRoles = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, [
+      handler,
+      controller,
+    ]);
+
+    if (!requiredRoles || requiredRoles.length === 0) {
+      this.logger.debug(`[${route}] No roles required — allowing access`);
+      return true;
+    }
+
+    const req = context.switchToHttp().getRequest();
+    const user = req?.user;
+
+    if (!user) {
+      this.logger.warn(`[${route}] No user found on request — denying access`);
+      throw new UnauthorizedException('User not authenticated');
+    }
+
+    const userRoles: Role[] = user.roles ?? [];
+    const hasRole = requiredRoles.some((role) => userRoles.includes(role));
+
+    if (!hasRole) {
+      this.logger.warn(
+        `[${route}] Access denied — user ${user.sub ?? user.id} has roles [${userRoles}] but requires one of [${requiredRoles}]`,
+      );
+      throw new ForbiddenException('Insufficient permissions');
+    }
+
+    this.logger.debug(
+      `[${route}] Access granted — user ${user.sub ?? user.id} matched role(s) [${requiredRoles}]`,
+    );
+
+    return true;
+  }
+}
