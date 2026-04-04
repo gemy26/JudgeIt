@@ -1,177 +1,131 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { Tokens } from '../types';
-import { GetCurrentUser, GetCurrentUserId, Public, SkipAuth } from '../common/decorators';
-import { AtGuard, RtGuard, RolesGuard } from '../common/guards';
+import { GetCurrentUser, GetCurrentUserId, Public } from '../common/decorators';
+import { RtGuard } from '../common/guards';
 import { Roles } from '../common/decorators';
-import { Role } from '../common/enums';
 import { AuthGuard } from '@nestjs/passport';
 import { ResetPasswordDto, AuthDto, ChangePasswordDto } from '../dto';
 import type { Response } from 'express';
+import { Role } from '@prisma/client';
 
 // @UseGuards(AtGuard, RolesGuard)
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) { }
+  constructor(private authService: AuthService) {}
 
   @Public()
   @HttpCode(HttpStatus.CREATED)
-  @Post('/local/signup')
-  async signupLocal(@Body() dto: AuthDto, @Res() res: Response): Promise<void> {
-    const tokens: Tokens = await this.authService.signupLocal(dto);
-
-     res.cookie('Authentication', tokens.access_token, {
-      httpOnly: true,
-      secure: false, // true in production
-      sameSite: 'lax',
-      maxAge: 15 * 60 * 1000, // 15 min
-    });
-
-    res.cookie('Refresh', tokens.refresh_token, {
-      httpOnly: true,
-      secure: false, // true in production
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, //7 days
-    });
-
+  @Post('/register')
+  async register(@Body() dto: AuthDto, @Res() res: Response): Promise<void> {
+    const tokens: Tokens = await this.authService.register(dto);
+    this.authService.setCookies(res, tokens);
     res.json(tokens);
   }
 
   @Public()
-  @Post('/local/signin')
+  @Post('/login')
   @HttpCode(HttpStatus.OK)
-  async signinLocal(@Body() dto: AuthDto, @Res() res: Response): Promise<void> {
-    const tokens: Tokens = await this.authService.signinLocal(dto);
-
-    res.cookie('Authentication', tokens.access_token, {
-      httpOnly: true,
-      secure: false, // true in production
-      sameSite: 'lax',
-      maxAge: 15 * 60 * 1000, // 15 min
-    });
-
-    res.cookie('Refresh', tokens.refresh_token, {
-      httpOnly: true,
-      secure: false, // true in production
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, //7 days
-    });
-
+  async login(@Body() dto: AuthDto, @Res() res: Response): Promise<void> {
+    const tokens: Tokens = await this.authService.login(dto);
+    this.authService.setCookies(res, tokens);
     res.json(tokens);
   }
 
-  // @UseGuards(AtGuard)
   @HttpCode(HttpStatus.OK)
-  @Post('/local/logout')
-  async logout(@GetCurrentUserId() userId: string) {
-    console.log('Here')
-    return this.authService.logout(parseInt(userId));
+  @Post('/logout')
+  async logout(@GetCurrentUserId(new ParseIntPipe()) userId: number) {
+    return this.authService.logout(userId);
   }
-
-
 
   @Public()
   @UseGuards(RtGuard)
-  @Post('/local/refresh')
+  @Post('/refresh')
   @HttpCode(HttpStatus.OK)
   async refreshTokens(
-    @GetCurrentUser('sub') sub: string,
+    @GetCurrentUser('sub', new ParseIntPipe()) sub: number,
     @GetCurrentUser('refreshToken') refreshToken: string,
-    @Res() res: Response
+    @Res() res: Response,
   ): Promise<void> {
-    console.log("Refresh uri, userId => ", sub)
-    console.log("Refresh uri, refreshToken => ", refreshToken)
-    const tokens: Tokens = await this.authService.refreshTokens(sub, refreshToken);
-    
-    res.cookie('Authentication', tokens.access_token, {
-      httpOnly: true,
-      secure: false, // true in production
-      sameSite: 'lax',
-      maxAge: 15 * 60 * 1000, // 15 min
-    });
-
-    res.cookie('Refresh', tokens.refresh_token, {
-      httpOnly: true,
-      secure: false, // true in production
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, //7 days
-    });
-
+    const tokens: Tokens = await this.authService.refreshTokens(
+      sub,
+      refreshToken,
+    );
+    this.authService.setCookies(res, tokens);
     res.json(tokens);
   }
 
   @Roles(Role.ADMIN)
   @Get('/admin')
   Admin() {
-    return "Hello, Admin"
+    return 'Hello, Admin';
   }
 
   @Public()
-  @Get('/google')
+  @Get('/google/login')
   @UseGuards(AuthGuard('google'))
-  async oauthLogin(@Req() req) { }
+  async googleLogin(@Req() req: Request) {}
 
   @Public()
   @Get('/google/callback')
   @UseGuards(AuthGuard('google'))
   async googleAuthCallback(
-    @GetCurrentUser('id') id: string,
+    @GetCurrentUserId(new ParseIntPipe()) userId: number,
     @GetCurrentUser('email') email: string,
-    @GetCurrentUser('role') role: [],
-    @Res() res: Response
+    @GetCurrentUser('roles') roles: Role[],
+    @Res() res: Response,
   ): Promise<void> {
-    const userId = parseInt(id);
     const tokens: Tokens = await this.authService.getTokens(
       userId,
       email,
-      role || [],
+      roles,
     );
-
-    console.log('callback url, ID: ', id);
-    console.log('callback url, Email: ', email);
     await this.authService.updateRtHash(userId, tokens.refresh_token);
-
-    res.cookie('Authentication', tokens.access_token, {
-      httpOnly: true,
-      secure: false, // true in production
-      sameSite: 'lax',
-      maxAge: 15 * 60 * 1000, // 15 min
-    });
-
-    res.cookie('Refresh', tokens.refresh_token, {
-      httpOnly: true,
-      secure: false, // true in production
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, //7 days
-    });
-
+    this.authService.setCookies(res, tokens);
     res.json(tokens);
   }
 
-  @SkipAuth()
   @Public()
-  @Get('/verify-reset-token')
-  async verifyResetToken(@Query() token: string){
+  @Get('/reset-password/verify')
+  async validateResetToken(@Query('token') token: string) {
     return this.authService.validateResetToken(token);
   }
 
-  @SkipAuth()
   @Public()
-  @Get('/reset-password')
-  async resetPassword(@Body() body: ResetPasswordDto){
+  @Patch('/reset-password')
+  async resetPassword(@Body() body: ResetPasswordDto) {
     return this.authService.resetPassword(body);
   }
 
-  @SkipAuth()
   @Public()
-  @Get('/forget-password')
-  async forgetPassword(@Body() body){
-    return this.authService.sendPasswordResetEmail(body?.email);
+  @Post('/forgot-password')
+  async forgotPassword(@Body() body) {
+    const email: string = body?.email;
+    if (!email) {
+      throw new BadRequestException('no email provided');
+    }
+    return this.authService.sendPasswordResetEmail(email);
   }
 
-  @Post('/change-password')
-  async changePassword(@GetCurrentUserId() id: string, @Body() body: ChangePasswordDto){
-    console.log('Controller: changePassword userId =>', id);
+  @Patch('/password')
+  async changePassword(
+    @GetCurrentUserId(new ParseIntPipe()) id: number,
+    @Body() body: ChangePasswordDto,
+  ) {
     return this.authService.changePassword(id, body);
   }
 }
