@@ -104,7 +104,7 @@ describe('WorkerManagerService', () => {
 
     expect(mockJudgeService.judgeSubmission).toHaveBeenCalledWith(
       { ...queueMessage, timestamp: queueMessage.timestamp.toISOString() },
-      4,
+      0,
     );
   });
   it('control the backpressure', async () => {
