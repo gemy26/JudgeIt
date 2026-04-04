@@ -1,30 +1,40 @@
-import { Injectable } from "@nestjs/common";
-import { PassportStrategy } from "@nestjs/passport";
-import { ExtractJwt, Strategy } from "passport-jwt";
-import {Request} from 'express'
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { PassportStrategy } from '@nestjs/passport';
+import { ExtractJwt, Strategy } from 'passport-jwt';
+import { Request } from 'express';
 import { ConfigService } from '@nestjs/config';
+import { JwtPayload } from '../../types';
 
 @Injectable()
 export class RtStrategy extends PassportStrategy(Strategy, 'jwt-refresh') {
-  constructor(private config: ConfigService) {
+  private readonly logger = new Logger(RtStrategy.name, { timestamp: true });
+
+  constructor(private readonly config: ConfigService) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
-        (request: Request) => {
-          
-          return request?.cookies?.Refresh;
-        },
+        (request: Request) => request?.cookies?.Refresh ?? null,
       ]),
-      secretOrKey: config.get<string>('REFRESH_TOKEN_SECRET')!,
-      passReqToCallback: true, 
+      secretOrKey: config.getOrThrow<string>('REFRESH_TOKEN_SECRET'),
+      passReqToCallback: true,
     });
   }
 
-  validate(req: Request, payload: any) {
+  validate(req: Request, payload: JwtPayload) {
     const refreshToken = req.cookies?.Refresh;
-    console.log('Here is refresh strategy, payload:', payload);
-    return {
-      ...payload,
-      refreshToken,
-    };
+
+    if (!refreshToken) {
+      this.logger.warn('Refresh token missing from cookie');
+      throw new UnauthorizedException('Refresh token not found');
+    }
+
+    if (!payload?.sub || !payload?.email) {
+      this.logger.warn(
+        'RT validation failed — payload missing required fields',
+      );
+      throw new UnauthorizedException('Invalid token payload');
+    }
+
+    this.logger.debug(`Refresh token validated for user: ${payload.sub}`);
+    return { ...payload, refreshToken };
   }
 }

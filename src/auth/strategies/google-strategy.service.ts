@@ -1,12 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
-import { Strategy } from 'passport-google-oauth20';
+import { Profile, Strategy, VerifyCallback } from 'passport-google-oauth20';
+import { ConfigService } from '@nestjs/config';
 import { AuthService } from '../auth.service';
 import { GoogleProfileDto } from '../../dto';
-import { ConfigService } from '@nestjs/config';
 
 @Injectable()
-export class googleStrategy extends PassportStrategy(Strategy, 'google') {
+export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
+  private logger: Logger = new Logger(GoogleStrategy.name, { timestamp: true });
   constructor(
     private authService: AuthService,
     private config: ConfigService,
@@ -19,25 +20,39 @@ export class googleStrategy extends PassportStrategy(Strategy, 'google') {
     });
   }
 
-  async validate(accessToken, refreshToken, profile, done) {
+  async validate(
+    accessToken: string,
+    refreshToken: string,
+    profile: Profile,
+    done: VerifyCallback,
+  ): Promise<void> {
+    this.logger.debug(
+      `Google OAuth callback received for profile: ${profile.id}`,
+    );
+
     try {
+      const email = profile.emails?.[0]?.value;
+      const emailVerified = profile.emails?.[0]?.verified ?? false;
+
+      if (!email) {
+        throw new UnauthorizedException('Email not provided by Google');
+      }
+
+      if (!emailVerified) {
+        throw new UnauthorizedException('Email not verified by Google');
+      }
+
       const googleProfile: GoogleProfileDto = {
         id: profile.id,
-        email: profile.emails?.[0]?.value,
+        email,
         firstName: profile.name?.givenName,
         lastName: profile.name?.familyName,
         displayName: profile.displayName,
         picture: profile.photos?.[0]?.value,
-        emailVerified: profile.emails?.[0]?.verified ?? false,
+        emailVerified,
       };
 
-      if (!googleProfile.email) {
-        throw new Error('Email not provided by Google');
-      }
-
-      if (!googleProfile.emailVerified) {
-        throw new Error('Email not verified by Google');
-      }
+      this.logger.debug(`Processing OAuth login for: ${email}`);
 
       const user = await this.authService.validateOAuthLogin(
         googleProfile,
@@ -46,9 +61,13 @@ export class googleStrategy extends PassportStrategy(Strategy, 'google') {
         'google',
       );
 
+      this.logger.debug(`OAuth login successful for user: ${user.id ?? email}`);
       done(null, user);
     } catch (error) {
-      done(error, null);
+      this.logger.warn(
+        `Google OAuth validation failed — ${(error as Error).message}`,
+      );
+      done(error as Error, undefined);
     }
   }
 }
