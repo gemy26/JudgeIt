@@ -28,12 +28,9 @@ export class UsersRepository {
     });
   }
 
-  async findById(id: string): Promise<User | null> {
-    const Id = parseInt(id);
-    console.log("UsersRepo");
-    console.log("id ", id);
+  async findById(id: number): Promise<User | null> {
     return this.prisma.user.findFirst({
-      where: { id: Id },
+      where: { id },
     });
   }
 
