@@ -11,13 +11,11 @@ describe('Submissions Flow (e2e)', () => {
   let userCookies: string[];
 
   const login = async () => {
-    const res = await request(app.getHttpServer())
-      .post('/auth/local/signin')
-      .send({
-        email: 'user@test.com',
-        username: 'testuser',
-        password: 'Test1234!',
-      });
+    const res = await request(app.getHttpServer()).post('/auth/login').send({
+      email: 'user@test.com',
+      username: 'testuser',
+      password: 'Test1234!',
+    });
     userCookies = res.headers['set-cookie'];
     return res;
   };
@@ -45,7 +43,7 @@ describe('Submissions Flow (e2e)', () => {
     await app.init();
 
     const loginRes = await request(app.getHttpServer())
-      .post('/auth/local/signin')
+      .post('/auth/login')
       .send({
         email: 'user@test.com',
         username: 'testuser',
@@ -59,7 +57,6 @@ describe('Submissions Flow (e2e)', () => {
     await testPrisma.$disconnect();
     await app.close();
   }, 30000);
-
 
   describe('POST /submissions/submit', () => {
     it('should submit a solution successfully (201)', async () => {
@@ -112,7 +109,6 @@ describe('Submissions Flow (e2e)', () => {
       await submitSolution(userCookies, 999999).expect(HttpStatus.NOT_FOUND);
     });
   });
-
 
   describe('GET /submissions/userSubmissions', () => {
     beforeAll(async () => {
@@ -228,7 +224,6 @@ describe('Submissions Flow (e2e)', () => {
     });
   });
 
-
   describe('GET /submissions/filtered', () => {
     it('should return only submissions matching the verdict', async () => {
       const res = await request(app.getHttpServer())
@@ -284,7 +279,6 @@ describe('Submissions Flow (e2e)', () => {
         .expect(HttpStatus.UNAUTHORIZED);
     });
   });
-
 
   describe('GET /submissions/:submissionId', () => {
     let submissionId: number;
