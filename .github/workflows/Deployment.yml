@@ -40,12 +40,19 @@ jobs:
           sudo mkdir -p /var/local/lib/isolate
           sudo chown root:root /var/local/lib/isolate
           sudo chmod 755 /var/local/lib/isolate
+
       - name: Configure isolate environment
         run: |
-          sudo useradd -m isolate || true        
-          echo "isolate:100000:65536" | sudo tee -a /etc/subuid
-          echo "isolate:100000:65536" | sudo tee -a /etc/subgid
-          sudo sysctl -w kernel.unprivileged_userns_clone=1    
+          id isolate &>/dev/null || sudo useradd -m isolate
+          if ! grep -q "^isolate:" /etc/subuid; then
+            echo "isolate:100000:65536" | sudo tee -a /etc/subuid
+          fi
+          if ! grep -q "^isolate:" /etc/subgid; then
+            echo "isolate:100000:65536" | sudo tee -a /etc/subgid
+          fi
+          sudo service nscd restart || true
+          id isolate
+          sudo sysctl -w kernel.unprivileged_userns_clone=1
 
       - name: Run unit tests
         run: npm test -- --coverage
