@@ -367,7 +367,7 @@ export class AuthService {
       sameSite: 'lax',
       maxAge: 15 * 60 * 1000,
     });
-    res.cookie('Authentication', tokens.refresh_token, {
+    res.cookie('Refresh', tokens.refresh_token, {
       httpOnly: true,
       secure: false,
       sameSite: 'lax',
