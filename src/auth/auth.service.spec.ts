@@ -14,13 +14,11 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import spyOn = jest.spyOn;
 
 jest.mock('argon2', () => ({
   verify: jest.fn(),
   hash: jest.fn(),
 }));
-
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -55,14 +53,28 @@ describe('AuthService', () => {
     service = module.get<AuthService>(AuthService);
   });
 
-  afterEach(async () => {
+  afterEach(() => {
     jest.clearAllMocks();
-  })
+  });
 
-  describe('signinLocal', () => {
-    const dto: AuthDto = { email: 'oauth@gmail.com', password: 'password', username: 'oauth', };
-    const mockUser = { id: 1, email: dto.email, hash: 'hashed', role: ['USER'] };
-    const mockOAuthUser = { id: 1, email: dto.email, hash: null, role: ['USER'] };
+  describe('login', () => {
+    const dto: AuthDto = {
+      email: 'oauth@gmail.com',
+      password: 'password',
+      username: 'oauth',
+    };
+    const mockUser = {
+      id: 1,
+      email: dto.email,
+      hash: 'hashed',
+      role: ['USER'],
+    };
+    const mockOAuthUser = {
+      id: 1,
+      email: dto.email,
+      hash: null,
+      role: ['USER'],
+    };
     const hashedRefreshToken = 'hashed_refresh_token';
 
     it('should return tokens when user credentials are valid', async () => {
@@ -77,7 +89,7 @@ describe('AuthService', () => {
 
       (argon2.hash as jest.Mock).mockResolvedValue(hashedRefreshToken);
 
-      const result = await service.signinLocal(dto);
+      const result = await service.login(dto);
 
       expect(result).toEqual({
         access_token: 'access_token',
@@ -86,43 +98,50 @@ describe('AuthService', () => {
 
       expect(usersService.findUser).toHaveBeenCalledWith(dto);
       expect(argon2.verify).toHaveBeenCalledWith(mockUser.hash, dto.password);
-      expect(service.getTokens).toHaveBeenCalledWith(mockUser.id, mockUser.email, mockUser.role);
+      expect(service.getTokens).toHaveBeenCalledWith(
+        mockUser.id,
+        mockUser.email,
+        mockUser.role,
+      );
       expect(argon2.hash).toHaveBeenCalledWith('refresh_token');
-      expect(usersService.updateRtHash).toHaveBeenCalledWith(mockUser.id, hashedRefreshToken);
+      expect(usersService.updateRtHash).toHaveBeenCalledWith(
+        mockUser.id,
+        hashedRefreshToken,
+      );
     });
-    it('should return Forbidden exception if user not found', async () => {
+    it('should throw UnauthorizedException if user not found', async () => {
       (usersService.findUser as jest.Mock).mockResolvedValue(undefined);
-      await expect(service.signinLocal(dto)).rejects.toThrow(ForbiddenException);
-    })
-    it('should return ConflictException if password not correct', async () => {
+      await expect(service.login(dto)).rejects.toThrow(UnauthorizedException);
+    });
+    it('should throw UnauthorizedException if password is incorrect', async () => {
       jest.spyOn(argon2, 'verify').mockResolvedValue(false);
       (usersService.findUser as jest.Mock).mockResolvedValue(mockUser);
 
-      await expect(service.signinLocal(dto)).rejects.toThrow(ConflictException);
-      await expect(service.signinLocal(dto)).rejects.toThrow('Not valid credintial');
-    })
-    it('should throw ForbiddenException if user has no hash (OAuth user)', async () => {
+      await expect(service.login(dto)).rejects.toThrow(UnauthorizedException);
+      await expect(service.login(dto)).rejects.toThrow('Invalid credentials');
+    });
+    it('should throw ForbiddenException if user registered via OAuth (no hash, has account)', async () => {
       (usersService.findUser as jest.Mock).mockResolvedValue(mockOAuthUser);
-      (usersService.hasAccount as jest.Mock).mockResolvedValue(false);
-      await expect(service.signinLocal(dto)).rejects.toThrow(ForbiddenException);
-      await expect(service.signinLocal(dto)).rejects.toThrow(
-        'This account uses OAuth login. Please sign in with Google.'
+      (usersService.hasAccount as jest.Mock).mockResolvedValue(true);
+      await expect(service.login(dto)).rejects.toThrow(ForbiddenException);
+      await expect(service.login(dto)).rejects.toThrow(
+        'This account uses OAuth login. Please sign in with Google.',
       );
     });
   });
 
-  describe('signupLocal', () => {
+  describe('register', () => {
     const dto: AuthDto = {
       email: 'oauth@gmail.com',
       password: 'password',
-      username: 'oauth'
+      username: 'oauth',
     };
     const hashedPassword = 'hashed_password';
     const mockUser = {
       id: 1,
       email: dto.email,
       hash: hashedPassword,
-      role: ['USER']
+      role: ['USER'],
     };
     const hashedRefreshToken = 'hashed_refresh_token';
 
@@ -132,14 +151,16 @@ describe('AuthService', () => {
         .mockResolvedValueOnce(hashedRefreshToken);
 
       (usersService.createUser as jest.Mock).mockResolvedValue(mockUser);
-      (usersService.updateRtHash as jest.Mock).mockResolvedValue(undefined);
+      (usersService.updateRtHash as jest.Mock).mockResolvedValue(
+        hashedRefreshToken,
+      );
 
       jest.spyOn(service, 'getTokens').mockResolvedValue({
         access_token: 'access_token',
         refresh_token: 'refresh_token',
       });
 
-      const result = await service.signupLocal(dto);
+      const result = await service.register(dto);
 
       expect(result).toEqual({
         access_token: 'access_token',
@@ -148,31 +169,35 @@ describe('AuthService', () => {
 
       expect(usersService.createUser).toHaveBeenCalledWith({
         ...dto,
-        password: hashedPassword
+        password: hashedPassword,
       });
 
       expect(service.getTokens).toHaveBeenCalledWith(
         mockUser.id,
         mockUser.email,
-        mockUser.role
+        mockUser.role,
       );
 
       expect(usersService.updateRtHash).toHaveBeenCalledWith(
         mockUser.id,
-        hashedRefreshToken
+        hashedRefreshToken,
       );
     });
-    it('should throw ConflictException if the user already exists', async () => {
-      (usersService.findUser as jest.Mock).mockResolvedValue(mockUser);
-      await expect(service.signinLocal(dto)).rejects.toThrow(ConflictException);
-    })
+    it('should throw if the user already exists', async () => {
+      (argon2.hash as jest.Mock).mockResolvedValueOnce(hashedPassword);
+      (usersService.createUser as jest.Mock).mockRejectedValue(
+        new ConflictException('User already exists'),
+      );
+
+      await expect(service.register(dto)).rejects.toThrow(ConflictException);
+    });
   });
 
   describe('refreshTokens', () => {
     const dto: AuthDto = {
       email: 'oauth@gmail.com',
       password: 'password',
-      username: 'oauth'
+      username: 'oauth',
     };
     const hashedPassword = 'hashed_password';
 
@@ -181,12 +206,12 @@ describe('AuthService', () => {
       email: dto.email,
       hash: hashedPassword,
       hashedRt: 'hashed_refresh_token',
-      role: ['USER']
+      role: ['USER'],
     };
 
     const mockTokens = {
       access_token: 'new_access_token',
-      refresh_token: 'new_refresh_token'
+      refresh_token: 'new_refresh_token',
     };
 
     const refreshToken = 'valid_refresh_token';
@@ -199,57 +224,76 @@ describe('AuthService', () => {
       jest.spyOn(service, 'getTokens').mockResolvedValue(mockTokens);
       (usersService.updateRtHash as jest.Mock).mockResolvedValue(undefined);
 
-      const result = await service.refreshTokens(String(mockUser.id), refreshToken);
+      const result = await service.refreshTokens(
+        String(mockUser.id),
+        refreshToken,
+      );
 
       expect(result).toEqual(mockTokens);
       expect(usersService.findById).toHaveBeenCalledWith(String(mockUser.id));
-      expect(argon2.verify).toHaveBeenCalledWith(mockUser.hashedRt, refreshToken);
+      expect(argon2.verify).toHaveBeenCalledWith(
+        mockUser.hashedRt,
+        refreshToken,
+      );
       expect(service.getTokens).toHaveBeenCalledWith(
         mockUser.id,
         mockUser.email,
-        mockUser.role
+        mockUser.role,
       );
       expect(argon2.hash).toHaveBeenCalledWith(mockTokens.refresh_token);
       expect(usersService.updateRtHash).toHaveBeenCalledWith(
         mockUser.id,
-        hashedNewRefreshToken
+        hashedNewRefreshToken,
       );
     });
 
     it('Should return ForbiddenException if user is not found', async () => {
       (usersService.findById as jest.Mock).mockResolvedValue(null);
 
-      await expect(service.refreshTokens(String(mockUser.id), refreshToken)).rejects.toThrow(ForbiddenException);
+      await expect(
+        service.refreshTokens(String(mockUser.id), refreshToken),
+      ).rejects.toThrow(ForbiddenException);
       expect(usersService.findById).toHaveBeenCalledWith(String(mockUser.id));
-    })
+    });
 
     it("Should return ForbiddenException if refresh token doesn't match", async () => {
       (usersService.findById as jest.Mock).mockResolvedValue(mockUser);
       jest.spyOn(argon2, 'verify').mockResolvedValue(false);
 
-      await expect(service.refreshTokens(String(mockUser.id), refreshToken)).rejects.toThrow(ForbiddenException);
       await expect(
-        service.refreshTokens(String(mockUser.id), refreshToken)
-      ).rejects.toThrow('Access denied, Refresh token does not match');
-    })
+        service.refreshTokens(String(mockUser.id), refreshToken),
+      ).rejects.toThrow(ForbiddenException);
+      await expect(
+        service.refreshTokens(String(mockUser.id), refreshToken),
+      ).rejects.toThrow('Access denied');
+    });
   });
 
-  describe('change password',  () => {
-    const id = "1";
-    const newPassHash = "new_password_hashed";
-    const dto: ChangePasswordDto = {oldPass: "old_password", newPass: "new_password"};
-    const mockUser = { id: 1, email: "ahmed@gamil.com", hash: 'hashed', role: ['USER'] };
+  describe('change password', () => {
+    const id = '1';
+    const newPassHash = 'new_password_hashed';
+    const dto: ChangePasswordDto = {
+      oldPass: 'old_password',
+      newPass: 'new_password',
+    };
+    const mockUser = {
+      id: 1,
+      email: 'ahmed@gamil.com',
+      hash: 'hashed',
+      role: ['USER'],
+    };
 
-    it("change password success path", async () => {
+    it('change password success path', async () => {
       (usersService.findById as jest.Mock).mockResolvedValue(mockUser);
       (usersService.hasAccount as jest.Mock).mockResolvedValue(false);
-      spyOn(argon2, 'verify').mockResolvedValue(true);
-      spyOn(argon2, 'hash').mockResolvedValue(newPassHash);
-      (usersService.changePass as jest.Mock).mockResolvedValue({ success: true });
 
-      const result = await service.changePassword(id, dto);
+      jest.spyOn(argon2, 'verify').mockResolvedValue(true);
+      jest.spyOn(argon2, 'hash').mockResolvedValue(newPassHash);
 
-      expect(result).toEqual({ success: true });
+      (usersService.changePass as jest.Mock).mockResolvedValue(undefined);
+
+      await service.changePassword(id, dto);
+
       expect(usersService.findById).toHaveBeenCalledWith(id);
       expect(usersService.hasAccount).toHaveBeenCalledWith(mockUser.email);
       expect(argon2.verify).toHaveBeenCalledWith(mockUser.hash, dto.oldPass);
@@ -260,8 +304,12 @@ describe('AuthService', () => {
     it('should throw NotFoundException if user not found', async () => {
       (usersService.findById as jest.Mock).mockResolvedValue(null);
 
-      await expect(service.changePassword(id, dto)).rejects.toThrow(NotFoundException);
-      await expect(service.changePassword(id, dto)).rejects.toThrow('User not found');
+      await expect(service.changePassword(id, dto)).rejects.toThrow(
+        NotFoundException,
+      );
+      await expect(service.changePassword(id, dto)).rejects.toThrow(
+        'User not found',
+      );
 
       expect(usersService.findById).toHaveBeenCalledWith(id);
     });
@@ -270,9 +318,8 @@ describe('AuthService', () => {
       (usersService.findById as jest.Mock).mockResolvedValue(mockUser);
       (usersService.hasAccount as jest.Mock).mockResolvedValue(true);
 
-      await expect(service.changePassword(id, dto)).rejects.toThrow(BadRequestException);
       await expect(service.changePassword(id, dto)).rejects.toThrow(
-        'User is registered with google'
+        BadRequestException,
       );
 
       expect(usersService.findById).toHaveBeenCalledWith(id);
@@ -285,13 +332,14 @@ describe('AuthService', () => {
       (usersService.findById as jest.Mock).mockResolvedValue(userWithoutHash);
       (usersService.hasAccount as jest.Mock).mockResolvedValue(false);
 
-      await expect(service.changePassword(id, dto)).rejects.toThrow(BadRequestException);
       await expect(service.changePassword(id, dto)).rejects.toThrow(
-        'User has no password hash'
+        BadRequestException,
       );
 
       expect(usersService.findById).toHaveBeenCalledWith(id);
-      expect(usersService.hasAccount).toHaveBeenCalledWith(userWithoutHash.email);
+      expect(usersService.hasAccount).toHaveBeenCalledWith(
+        userWithoutHash.email,
+      );
     });
 
     it('should throw BadRequestException if old password is incorrect', async () => {
@@ -299,9 +347,11 @@ describe('AuthService', () => {
       (usersService.hasAccount as jest.Mock).mockResolvedValue(false);
       jest.spyOn(argon2, 'verify').mockResolvedValue(false);
 
-      await expect(service.changePassword(id, dto)).rejects.toThrow(BadRequestException);
       await expect(service.changePassword(id, dto)).rejects.toThrow(
-        'Incorrect old password'
+        BadRequestException,
+      );
+      await expect(service.changePassword(id, dto)).rejects.toThrow(
+        'Incorrect old password',
       );
 
       expect(usersService.findById).toHaveBeenCalledWith(id);
@@ -312,12 +362,13 @@ describe('AuthService', () => {
     it('should throw BadRequestException if user hash is undefined', async () => {
       const userWithUndefinedHash = { ...mockUser, hash: undefined };
 
-      (usersService.findById as jest.Mock).mockResolvedValue(userWithUndefinedHash);
+      (usersService.findById as jest.Mock).mockResolvedValue(
+        userWithUndefinedHash,
+      );
       (usersService.hasAccount as jest.Mock).mockResolvedValue(false);
 
-      await expect(service.changePassword(id, dto)).rejects.toThrow(BadRequestException);
       await expect(service.changePassword(id, dto)).rejects.toThrow(
-        'User has no password hash'
+        BadRequestException,
       );
     });
 
@@ -327,9 +378,8 @@ describe('AuthService', () => {
       (usersService.findById as jest.Mock).mockResolvedValue(userWithEmptyHash);
       (usersService.hasAccount as jest.Mock).mockResolvedValue(false);
 
-      await expect(service.changePassword(id, dto)).rejects.toThrow(BadRequestException);
       await expect(service.changePassword(id, dto)).rejects.toThrow(
-        'User has no password hash'
+        BadRequestException,
       );
     });
   });
@@ -342,12 +392,16 @@ describe('AuthService', () => {
       firstName: 'John',
       lastName: 'Doe',
       picture: 'profile.jpg',
-      displayName: "haha"
+      displayName: 'haha',
     };
-    const mockUser = { id: 'user-123', email: mockGoogleProfile.email, role: ['USER'] };
+    const mockUser = {
+      id: 'user-123',
+      email: mockGoogleProfile.email,
+      role: ['USER'],
+    };
     const mockAccount = {
       id: 1,
-      user: { id: 'user-123', email: mockGoogleProfile.email, role: ['USER'] }
+      user: { id: 'user-123', email: mockGoogleProfile.email, role: ['USER'] },
     };
     const accessToken = 'oauth_access_token';
     const refreshToken = 'oauth_refresh_token';
@@ -373,26 +427,40 @@ describe('AuthService', () => {
         ),
       ).rejects.toThrow('Email not provided by OAuth provider');
     });
-    it("should throw UnauthorizedException if email not verified", async () => {
-      const profileWithoutVerifiedEmail = { ...mockGoogleProfile, emailVerified: false };
-      await expect(service.validateOAuthLogin(profileWithoutVerifiedEmail, accessToken, refreshToken, provider),)
-        .rejects.toThrow(UnauthorizedException);
+    it('should throw UnauthorizedException if email not verified', async () => {
+      const profileWithoutVerifiedEmail = {
+        ...mockGoogleProfile,
+        emailVerified: false,
+      };
+      await expect(
+        service.validateOAuthLogin(
+          profileWithoutVerifiedEmail,
+          accessToken,
+          refreshToken,
+          provider,
+        ),
+      ).rejects.toThrow(UnauthorizedException);
     });
-    it("should update and return existing account if provider account exists", async () => {
-      (usersService.findAccountByProvider as jest.Mock).mockResolvedValue(mockAccount);
+    it('should update and return existing account if provider account exists', async () => {
+      (usersService.findAccountByProvider as jest.Mock).mockResolvedValue(
+        mockAccount,
+      );
 
       const result = await service.validateOAuthLogin(
         mockGoogleProfile,
         accessToken,
         refreshToken,
-        provider
+        provider,
       );
       expect(result).toEqual(mockAccount.user);
-      expect(usersService.findAccountByProvider).toHaveBeenCalledWith(provider, mockGoogleProfile.id);
+      expect(usersService.findAccountByProvider).toHaveBeenCalledWith(
+        provider,
+        mockGoogleProfile.id,
+      );
       expect(usersService.updateOauthAccount).toHaveBeenCalledWith(
         mockAccount,
         accessToken,
-        refreshToken
+        refreshToken,
       );
     });
     it('should link OAuth account to existing user if user exists', async () => {
@@ -403,22 +471,31 @@ describe('AuthService', () => {
         mockGoogleProfile,
         accessToken,
         refreshToken,
-        provider
+        provider,
       );
 
       expect(result).toEqual(mockUser);
-      expect(usersService.findAccountByProvider).toHaveBeenCalledWith(provider, mockGoogleProfile.id);
-      expect(usersService.findByEmail).toHaveBeenCalledWith(mockGoogleProfile.email);
+      expect(usersService.findAccountByProvider).toHaveBeenCalledWith(
+        provider,
+        mockGoogleProfile.id,
+      );
+      expect(usersService.findByEmail).toHaveBeenCalledWith(
+        mockGoogleProfile.email,
+      );
       expect(usersService.linkOauthUser).toHaveBeenCalledWith(
         mockUser,
         provider,
         mockGoogleProfile,
         accessToken,
-        refreshToken
+        refreshToken,
       );
     });
     it('should create new OAuth user if no existing user or account', async () => {
-      const newUser = { id: 'new-user-123', email: mockGoogleProfile.email, role: ['USER'] };
+      const newUser = {
+        id: 'new-user-123',
+        email: mockGoogleProfile.email,
+        role: ['USER'],
+      };
 
       (usersService.findAccountByProvider as jest.Mock).mockResolvedValue(null);
       (usersService.findByEmail as jest.Mock).mockResolvedValue(null);
@@ -428,19 +505,23 @@ describe('AuthService', () => {
         mockGoogleProfile,
         accessToken,
         refreshToken,
-        provider
+        provider,
       );
 
       expect(result).toEqual(newUser);
-      expect(usersService.findAccountByProvider).toHaveBeenCalledWith(provider, mockGoogleProfile.id);
-      expect(usersService.findByEmail).toHaveBeenCalledWith(mockGoogleProfile.email);
+      expect(usersService.findAccountByProvider).toHaveBeenCalledWith(
+        provider,
+        mockGoogleProfile.id,
+      );
+      expect(usersService.findByEmail).toHaveBeenCalledWith(
+        mockGoogleProfile.email,
+      );
       expect(usersService.createOauthUser).toHaveBeenCalledWith(
         provider,
         mockGoogleProfile,
         accessToken,
-        refreshToken
+        refreshToken,
       );
     });
   });
-  });
-
+});

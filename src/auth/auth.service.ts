@@ -1,141 +1,189 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { GoogleProfileDto, AuthDto, MailDto, ResetPasswordDto, ChangePasswordDto } from '../dto';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import {
+  GoogleProfileDto,
+  AuthDto,
+  MailDto,
+  ResetPasswordDto,
+  ChangePasswordDto,
+} from '../dto';
 import { UsersService } from 'src/users/users.service';
-import * as argon2 from 'argon2'
+import * as argon2 from 'argon2';
 import { Tokens } from '../types';
 import { JwtService } from '@nestjs/jwt';
 import { Role } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { PasswordResetRepository } from './password-reset.repository';
 import { addMinutes } from 'date-fns';
 import { EmailService } from '../email/email.service';
 import * as crypto from 'crypto';
-
+import type { Response } from 'express';
 
 @Injectable()
 export class AuthService {
+  private logger: Logger = new Logger(AuthService.name, { timestamp: true });
   constructor(
     private usersService: UsersService,
     private passwordResetRepository: PasswordResetRepository,
     private emailService: EmailService,
     private jwtService: JwtService,
     private config: ConfigService,
-  ) { }
+  ) {}
 
   async updateRtHash(userId: number, rt: string) {
-    console.log('Updating hash for token:', rt);
+    this.logger.debug(`Updating refresh token hash for user: ${userId}`);
     const hashedRt = await argon2.hash(rt);
-    console.log('New hash:', hashedRt);
     await this.usersService.updateRtHash(userId, hashedRt);
+    this.logger.debug(`Refresh token hash updated for user: ${userId}`);
   }
 
-  async getTokens(userId: number, email: string, roles: Role[]): Promise<Tokens> {
+  async getTokens(
+    userId: number,
+    email: string,
+    roles: Role[],
+  ): Promise<Tokens> {
+    this.logger.debug(`Generating tokens for user: ${userId} (${email})`);
     const [at, rt] = await Promise.all([
       this.jwtService.signAsync(
         {
           sub: userId,
           email,
-          roles: roles
+          roles: roles,
         },
         {
           secret: this.config.get('ACCESS_TOKEN_SECRET'),
-          expiresIn: this.config.get('ACCESS_TOKEN_EXPIRATION')
+          expiresIn: this.config.get('ACCESS_TOKEN_EXPIRATION'),
         },
       ),
       this.jwtService.signAsync(
         {
           sub: userId,
           email,
-          roles: roles
+          roles: roles,
         },
         {
           secret: this.config.get('REFRESH_TOKEN_SECRET'),
-          expiresIn: this.config.get('REFRESH_TOKEN_EXPIRATION')
+          expiresIn: this.config.get('REFRESH_TOKEN_EXPIRATION'),
         },
       ),
     ]);
 
+    this.logger.debug(`Tokens generated for user: ${userId}`);
     return {
       access_token: at,
       refresh_token: rt,
     };
   }
 
-  async signupLocal(dto: AuthDto): Promise<Tokens> {
+  async register(dto: AuthDto): Promise<Tokens> {
+    this.logger.log(`Registering new user with email: ${dto.email}`);
     const hashedPassword = await argon2.hash(dto.password);
+    const user = await this.usersService.createUser({
+      ...dto,
+      password: hashedPassword,
+    });
 
-    const newUserDto = { ...dto, password: hashedPassword };
-    const user = await this.usersService.createUser(newUserDto);
-    console.log("SignUp  user => ", user)
+    this.logger.log(`User registered successfully — id: ${user.id}`);
+
     const tokens: Tokens = await this.getTokens(user.id, user.email, user.role);
     await this.updateRtHash(user.id, tokens.refresh_token);
-    return tokens
+
+    return tokens;
   }
 
-  async signinLocal(dto: AuthDto): Promise<Tokens> {
-    let { email, password } = dto;
+  async login(dto: AuthDto): Promise<Tokens> {
+    const { email, password } = dto;
+    this.logger.log(`Login attempt for email: ${email}`);
+
     const user = await this.usersService.findUser(dto);
-    if(!user){
-      throw new ForbiddenException('User not found');
+
+    if (!user) {
+      this.logger.warn(`Login failed — user not found: ${email}`);
+      throw new UnauthorizedException('Invalid credentials');
     }
+
     const hasOAuthAccount = await this.usersService.hasAccount(email);
-    if (!user.hash && !hasOAuthAccount) {
+    if (!user.hash && hasOAuthAccount) {
+      this.logger.warn(
+        `Login failed — OAuth account attempted password login: ${email}`,
+      );
       throw new ForbiddenException(
         'This account uses OAuth login. Please sign in with Google.',
       );
     }
 
-    const IsValidPassword = await argon2.verify(user.hash!, password);
-    if (!IsValidPassword) {
-      throw new ConflictException("Not valid credintial");
+    const isValidPassword = await argon2.verify(user.hash!, password);
+    if (!isValidPassword) {
+      this.logger.warn(`Login failed — invalid password for user: ${user.id}`);
+      throw new UnauthorizedException('Invalid credentials');
     }
 
-    console.log("SignIn => ", user);
-
-    const tokens: Tokens = await this.getTokens(user.id, user.email, user.role);
+    this.logger.log(`User logged in successfully — id: ${user.id}`);
+    const tokens = await this.getTokens(user.id, user.email, user.role);
     await this.updateRtHash(user.id, tokens.refresh_token);
-    return tokens
+    return tokens;
   }
 
   async logout(userId: number) {
+    this.logger.log(`Logging out user: ${userId}`);
     await this.usersService.deleteRt(userId);
+    this.logger.log(`User logged out successfully — id: ${userId}`);
   }
 
-  async refreshTokens(userId: string, rt: string): Promise<Tokens> {
-    console.log("Auth Service => ")
+  async refreshTokens(userId: number, rt: string): Promise<Tokens> {
+    this.logger.debug(`Refreshing tokens for user: ${userId}`);
 
     const user = await this.usersService.findById(userId);
     if (!user || !user.hashedRt) {
+      this.logger.warn(
+        `Token refresh failed — user not found or no RT hash: ${userId}`,
+      );
       throw new ForbiddenException('Access denied');
     }
 
-    console.log("userRtHashed => ", user.hashedRt);
-    console.log("Rt => ", rt);
-
     const rtMatches = await argon2.verify(user.hashedRt, rt);
     if (!rtMatches) {
-      console.log('not matches')
-      throw new ForbiddenException('Access denied, Refresh token does not match');
+      this.logger.warn(
+        `Token refresh failed — RT mismatch for user: ${userId}`,
+      );
+      throw new ForbiddenException('Access denied');
     }
 
-    const tokens: Tokens = await this.getTokens(user.id, user.email, user.role);
+    this.logger.debug(`Tokens refreshed successfully for user: ${userId}`);
+
+    const tokens = await this.getTokens(user.id, user.email, user.role);
     await this.updateRtHash(user.id, tokens.refresh_token);
-    return tokens
+
+    return tokens;
   }
 
   async validateOAuthLogin(
     googleProfile: GoogleProfileDto,
     accessToken: string,
     refreshToken: string,
-    provider: string
+    provider: string,
   ) {
+    const { email, emailVerified, id } = googleProfile;
+    this.logger.debug(
+      `Validating OAuth login — provider: ${provider}, profileId: ${id}`,
+    );
 
-    if (!googleProfile.email) {
+    if (!email) {
+      this.logger.warn(
+        `OAuth login failed — no email from provider: ${provider}`,
+      );
       throw new UnauthorizedException('Email not provided by OAuth provider');
     }
 
-    if (!googleProfile.emailVerified) {
+    if (!emailVerified) {
+      this.logger.warn(`OAuth login failed — email not verified: ${email}`);
       throw new UnauthorizedException(
         'Please verify your email with the OAuth provider first',
       );
@@ -143,10 +191,13 @@ export class AuthService {
 
     const account = await this.usersService.findAccountByProvider(
       provider,
-      googleProfile.id
+      googleProfile.id,
     );
 
     if (account) {
+      this.logger.debug(
+        `Existing OAuth account found — updating tokens: ${email}`,
+      );
       await this.usersService.updateOauthAccount(
         account,
         accessToken,
@@ -157,6 +208,7 @@ export class AuthService {
 
     const user = await this.usersService.findByEmail(googleProfile.email);
     if (user) {
+      this.logger.debug(`Linking OAuth to existing user: ${email}`);
       await this.usersService.linkOauthUser(
         user,
         provider,
@@ -167,6 +219,9 @@ export class AuthService {
       return user;
     }
 
+    this.logger.log(
+      `Creating new OAuth user — provider: ${provider}, email: ${email}`,
+    );
     return this.usersService.createOauthUser(
       provider,
       googleProfile,
@@ -175,71 +230,85 @@ export class AuthService {
     );
   }
 
-
-  async changePassword(id: string, dto: ChangePasswordDto) {
+  async changePassword(id: number, dto: ChangePasswordDto): Promise<void> {
     const { oldPass, newPass } = dto;
+    this.logger.log(`Password change requested for user: ${id}`);
 
     const user = await this.usersService.findById(id);
     if (!user) {
-      throw new NotFoundException("User not found");
-    }
-    const email = user.email;
-    const hasAccount = await this.usersService.hasAccount(email);
-
-    if (hasAccount) {
-      throw new BadRequestException("User is registered with google");
+      this.logger.warn(`Password change failed — user not found: ${id}`);
+      throw new NotFoundException('User not found');
     }
 
-    if(!user.hash){
-      throw new BadRequestException('User has no password hash');
+    const hasOAuthAccount = await this.usersService.hasAccount(user.email);
+    if (hasOAuthAccount) {
+      this.logger.warn(
+        `Password change failed — OAuth user attempted password change: ${id}`,
+      );
+      throw new BadRequestException('OAuth accounts cannot change password');
+    }
+
+    if (!user.hash) {
+      this.logger.warn(
+        `Password change failed — no password hash for user: ${id}`,
+      );
+      throw new BadRequestException('User has no password set');
     }
 
     const isValidPass = await argon2.verify(user.hash, oldPass);
     if (!isValidPass) {
-      throw new BadRequestException("Incorrect old password");
+      this.logger.warn(
+        `Password change failed — incorrect old password: ${id}`,
+      );
+      throw new BadRequestException('Incorrect old password');
     }
 
     const newPassHash = await argon2.hash(newPass);
-    return await this.usersService.changePass(user.id, newPassHash);
+    await this.usersService.changePass(user.id, newPassHash);
+
+    this.logger.log(`Password changed successfully for user: ${id}`);
   }
 
-  //TODO: Refactor and use Strategy Pattern
-  async sendPasswordResetEmail(email: string) { //forget password
+  //TODO: Refactor and use Strategy Pattern in send emails
+  async sendPasswordResetEmail(email: string): Promise<void> {
+    this.logger.log(`Password reset requested for email: ${email}`);
+
     const user = await this.usersService.findByEmail(email);
-    if(!user) {
-      //TODO: Refactor to Forbidden
-      throw new NotFoundException("User not found");
+    if (!user) {
+      this.logger.warn(`Password reset requested for unknown email: ${email}`);
+      return;
     }
 
-    console.log(user);
+    const { token, hashedToken } = this.generateResetToken();
 
-    const {token, hashedToken} = await this.generateResetToken();
+    await this.passwordResetRepository.createPasswordResetToken(
+      user.id,
+      hashedToken,
+      addMinutes(new Date(), 15),
+    );
 
-    try{
-      console.log('Creating reset token for userId:', typeof user.id);
-      await this.passwordResetRepository.createPasswordResetToken(user.id, hashedToken, addMinutes(new Date(), 15));
-    }catch(err){
-      // throw new BadRequestException(err.message);
-      console.error('ERROR STACK:', err.stack);
-    }
+    this.logger.debug(`Reset token created for user: ${user.id}`);
 
-    const url = `http://${this.config.get<string>('HOST')!}/auth/reset-password/?token=${token}`;
+    const url = `http://${this.config.getOrThrow<string>('HOST')}/auth/reset-password/?token=${token}`;
 
     const resetPasswordDto: MailDto = {
       to: email,
-      subject: "Password Reset",
-      templateName: "reset_password",
-      templateData: {username: user.username, reset_link: url}
+      subject: 'Password Reset',
+      templateName: 'reset_password',
+      templateData: { username: user.username, reset_link: url },
     };
 
     await this.emailService.sendMail(resetPasswordDto);
 
-    console.log("Reset email sent");
+    this.logger.log(`Password reset email sent to: ${email}`);
   }
 
-  async resetPassword(dto: ResetPasswordDto) {
+  async resetPassword(
+    dto: ResetPasswordDto,
+  ): Promise<{ success: boolean; message: string }> {
+    const { token, newPassword } = dto;
+    this.logger.log('Processing password reset');
 
-    const {token, newPassword} = dto;
     const { userId, tokenId } = await this.validateResetToken(token);
 
     if (newPassword.length < 8) {
@@ -247,49 +316,62 @@ export class AuthService {
     }
 
     const hashedPassword = await argon2.hash(newPassword);
-
     await this.usersService.changePass(userId, hashedPassword);
-
     await this.passwordResetRepository.markTokenUsed(tokenId);
 
-    console.log("Reset email success");
+    this.logger.log(`Password reset successfully for user: ${userId}`);
 
-    return {
-      success: true,
-      message: 'Password reset successfully'
-    };
+    return { success: true, message: 'Password reset successfully' };
   }
 
-  async validateResetToken(token: string){
-    const hashedToken = crypto
-      .createHash('sha256')
-      .update(token)
-      .digest('hex');
+  async validateResetToken(token: string) {
+    this.logger.debug('Validating password reset token');
 
-    const tokenRecord = await this.passwordResetRepository.getPasswordResetToken(hashedToken);
+    const hashedToken = createHash('sha256').update(token).digest('hex');
+    const tokenRecord =
+      await this.passwordResetRepository.getPasswordResetToken(hashedToken);
+
     if (!tokenRecord) {
-      throw new ForbiddenException("Invalid or expired token");
+      this.logger.warn('Reset token validation failed — token not found');
+      throw new ForbiddenException('Invalid or expired token');
     }
 
     if (tokenRecord.used) {
-      throw new ForbiddenException("Token has already been used");
+      this.logger.warn(
+        `Reset token validation failed — token already used: ${tokenRecord.id}`,
+      );
+      throw new ForbiddenException('Token has already been used');
     }
 
     if (tokenRecord.expiresAt.getTime() < Date.now()) {
-      throw new ForbiddenException("Token has expired");
+      this.logger.warn(
+        `Reset token validation failed — token expired: ${tokenRecord.id}`,
+      );
+      throw new ForbiddenException('Token has expired');
     }
 
-    return {
-      userId: tokenRecord.userId,
-      tokenId: tokenRecord.id
-    };
-
+    this.logger.debug(`Reset token valid for user: ${tokenRecord.userId}`);
+    return { userId: tokenRecord.userId, tokenId: tokenRecord.id };
   }
 
-  async generateResetToken() {
+  generateResetToken() {
     const token = randomBytes(32).toString('hex');
     const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
     return { token, hashedToken };
   }
 
+  setCookies(res: Response, tokens: Tokens) {
+    res.cookie('Authentication', tokens.access_token, {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'lax',
+      maxAge: 15 * 60 * 1000,
+    });
+    res.cookie('Authentication', tokens.refresh_token, {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+  }
 }
