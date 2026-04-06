@@ -147,7 +147,7 @@ export class UsersRepository {
   async getProfile(userId: string): Promise<UserProfile> {
     const id = parseInt(userId);
 
-    const user = await this.findById(userId);
+    const user = await this.findById(id);
 
     const submissionsCount = await this.submissionsService.getSubmissionsCount(id);
     const solvedProblems = await this.submissionsService.getSolvedProblems(id);
