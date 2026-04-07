@@ -22,6 +22,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { ResetPasswordDto, AuthDto, ChangePasswordDto } from '../dto';
 import type { Response } from 'express';
 import { Role } from '@prisma/client';
+import { ApiBody } from '@nestjs/swagger';
 
 // @UseGuards(AtGuard, RolesGuard)
 @Controller('auth')
@@ -31,6 +32,7 @@ export class AuthController {
   @Public()
   @HttpCode(HttpStatus.CREATED)
   @Post('/register')
+  @ApiBody({ type: AuthDto })
   async register(@Body() dto: AuthDto, @Res() res: Response): Promise<void> {
     const tokens: Tokens = await this.authService.register(dto);
     this.authService.setCookies(res, tokens);
@@ -40,6 +42,7 @@ export class AuthController {
   @Public()
   @Post('/login')
   @HttpCode(HttpStatus.OK)
+  @ApiBody({ type: AuthDto })
   async login(@Body() dto: AuthDto, @Res() res: Response): Promise<void> {
     const tokens: Tokens = await this.authService.login(dto);
     this.authService.setCookies(res, tokens);
@@ -113,6 +116,15 @@ export class AuthController {
 
   @Public()
   @Post('/forgot-password')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        email: { type: 'string', example: 'user@judgeit.tech' },
+      },
+      required: ['email'],
+    },
+  })
   async forgotPassword(@Body() body) {
     const email: string = body?.email;
     if (!email) {

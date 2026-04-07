@@ -28,12 +28,29 @@ async function bootstrap() {
   });
 
   const config = new DocumentBuilder()
-    .setTitle('JudgeIt API')
+    .setTitle('JudgeIt.tech API')
+    .setDescription('The Judgeit.tech API description')
     .setVersion('1.0')
+    .addCookieAuth('Authorization')
+    .addCookieAuth('Refresh')
     .build();
 
   const documentFactory = () => SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api', app, documentFactory());
+  SwaggerModule.setup('/', app, documentFactory, {
+    swaggerOptions: {
+      withCredentials: true,
+    },
+  });
+
+  app.enableCors({
+    origin: [
+      'http://localhost:3000',
+      'https://judgeit.tech',
+      'https://www.judgeit.tech',
+    ],
+    credentials: true,
+  });
+
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();

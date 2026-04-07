@@ -14,6 +14,7 @@ import { SubmissionsService } from './submissions.service';
 import { KafkaProducerService } from 'src/kafka/kafka-producer.service';
 import { SubmissionQueuedEvent, PaginationDto } from 'src/types';
 import { ConfigService } from '@nestjs/config';
+import { ApiBody, ApiQuery } from '@nestjs/swagger';
 
 @Controller('submissions')
 export class SubmissionsController {
@@ -25,6 +26,7 @@ export class SubmissionsController {
   ) {}
 
   @Post('/submit')
+  @ApiBody({ type: SubmissionDto })
   async submit(@Body() dto: SubmissionDto, @GetCurrentUserId() userId: string) {
     this.logger.log(`Incoming submission from user ${userId}`);
 
@@ -54,6 +56,8 @@ export class SubmissionsController {
   }
 
   @Get('/userSubmissions')
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
+  @ApiQuery({ name: 'offset', required: false, type: Number, example: 0 })
   async getUserSubmissions(
     @GetCurrentUserId(ParseIntPipe) userId: number,
     @Query() { limit, offset }: PaginationDto,
