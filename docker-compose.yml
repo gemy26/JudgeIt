@@ -75,9 +75,39 @@ services:
       retries: 5
     profiles: ['dev']
 
+  prometheus:
+    image: prom/prometheus:v2.33.5
+    container_name: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    ports:
+      - 9090:9090
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./src/monitoring/prometheus:/etc/prometheus
+      - prom_data:/prometheus
+  grafana:
+    image: grafana/grafana:8.5.27
+    container_name: grafana
+    ports:
+      - 3001:3000
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=grafana
+    volumes:
+      - ./src/monitoring/grafana/datasources.yml:/etc/grafana/provisioning/datasources/prometheus.yml
+      - ./src/monitoring/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/observability-example.yml
+      - ./src/monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+
 volumes:
   postgres_data:
   zookeeper_data:
   zookeeper_logs:
   kafka_data:
   redis_data:
+  prom_data:

@@ -17,7 +17,9 @@ import { KafkaModule } from './kafka/kafka.module';
 import { ExecutionModule } from './execution/execution.module';
 import { JudgeModule } from './judge/judge.module';
 import { WorkerModule } from './worker/worker.module';
+import { MonitoringModule } from './monitoring/monitoring.module';
 import cookieParser from 'cookie-parser';
+import { MonitoringMiddleware } from './common/middlewares/monitoringMiddleware';
 
 @Module({
   imports: [
@@ -35,6 +37,7 @@ import cookieParser from 'cookie-parser';
     ExecutionModule,
     JudgeModule,
     WorkerModule,
+    MonitoringModule,
   ],
   controllers: [],
   providers: [
@@ -57,6 +60,9 @@ import cookieParser from 'cookie-parser';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(cookieParser()).forRoutes('*');
+    consumer
+      .apply(cookieParser(), MonitoringMiddleware)
+      .exclude('/metrics')
+      .forRoutes('*');
   }
 }
