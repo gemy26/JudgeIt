@@ -6,6 +6,7 @@ import { JudgeService } from './judge.service';
 import { TestCasesService } from './test-cases/test-cases.service';
 import { StorageModule } from '../storage/storage.module';
 import { CachingModule } from '../cache/cachingModule';
+import { MonitoringModule } from '../monitoring/monitoring.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { CachingModule } from '../cache/cachingModule';
     StorageModule,
     CachingModule,
     forwardRef(() => SubmissionsModule),
+    MonitoringModule,
   ],
   providers: [JudgeService, TestCasesService],
   exports: [JudgeService],

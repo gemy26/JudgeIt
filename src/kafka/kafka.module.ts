@@ -3,9 +3,10 @@ import { KafkaProducerService } from './kafka-producer.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Kafka } from 'kafkajs';
 import { KAFKA_CLIENT } from './kafka.constants';
+import { MonitoringModule } from '../monitoring/monitoring.module';
 
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, MonitoringModule],
   providers: [
     KafkaProducerService,
     {

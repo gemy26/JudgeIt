@@ -11,6 +11,7 @@ import {
 import { ProblemsService } from '../problems/problems.service';
 import { SubmissionsService } from '../submissions/submissions.service';
 import { TestCasesService } from './test-cases/test-cases.service';
+import { MetricService } from '../monitoring/metricService';
 
 @Injectable()
 export class JudgeService {
@@ -21,6 +22,7 @@ export class JudgeService {
     private problemsService: ProblemsService,
     private submssionsService: SubmissionsService,
     private testCaseService: TestCasesService,
+    private metricService: MetricService,
   ) {}
 
   async judgeSubmission(
@@ -110,6 +112,10 @@ export class JudgeService {
       `Stored ${submissionResults.length} result records for submissionId=${submissionId}`,
     );
 
+    const startTime = new Date(submissionDetails.timestamp).getTime();
+    const finishTime = Date.now();
+    const latencyInSeconds = (finishTime - startTime) / 1000;
+    this.metricService.messageQueueLatency.observe(latencyInSeconds);
     return verdicates;
   }
 

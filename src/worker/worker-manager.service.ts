@@ -11,6 +11,7 @@ import { Consumer, Kafka } from 'kafkajs';
 import { ConfigService } from '@nestjs/config';
 import { JudgeService } from '../judge/judge.service';
 import { OffsetTrackerService } from './offset-Tracker.service';
+import { MetricService } from '../monitoring/metricService';
 
 @Injectable()
 export class WorkerManagerService implements OnModuleInit, OnModuleDestroy {
@@ -25,6 +26,7 @@ export class WorkerManagerService implements OnModuleInit, OnModuleDestroy {
     @Inject(KAFKA_CLIENT) private readonly kafkaClient: Kafka,
     private readonly config: ConfigService,
     private judgeService: JudgeService,
+    private metricService: MetricService,
   ) {
     this.logger = new Logger(WorkerManagerService.name, { timestamp: true });
     this.topic = this.config.get<string>('KAFKA_TOPIC', 'submissions');
@@ -66,20 +68,23 @@ export class WorkerManagerService implements OnModuleInit, OnModuleDestroy {
             const offset = message.offset;
             this.offsetTracker.track(partition, offset);
             const boxId = await this.acquireOrPause(topic);
+            this.metricService.messageQueueConsumerConsumedTotal.inc();
             this.processMessage(
               topic,
               partition,
               offset,
               message.value,
               boxId,
-            ).catch((err) =>
-              this.logger.error(`Unhandled error on offset ${offset}`, err),
-            );
+            ).catch((err) => {
+              this.logger.error(`Unhandled error on offset ${offset}`, err);
+              this.metricService.messageQueueConsumerErrorsTotal.inc();
+            });
           },
         });
         this.logger.log('Kafka consumer started successfully');
         return;
       } catch (err) {
+        this.metricService.messageQueueConsumerErrorsTotal.inc();
         this.logger.warn(
           `Kafka consumer startup attempt ${attempt}/${maxRetries} failed: ${err.message}`,
         );

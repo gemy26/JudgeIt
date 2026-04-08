@@ -9,12 +9,13 @@ import {
 import { SubmissionQueuedEvent } from 'src/types';
 import { CompressionTypes, Kafka, Producer } from 'kafkajs';
 import { KAFKA_CLIENT } from './kafka.constants';
+import { MetricService } from '../monitoring/metricService';
 
 @Injectable()
 export class KafkaProducerService implements OnModuleInit, OnModuleDestroy {
   private logger: Logger;
   private producer: Producer;
-  constructor(@Inject(KAFKA_CLIENT) private kafkaClient: Kafka) {
+  constructor(@Inject(KAFKA_CLIENT) private kafkaClient: Kafka, private metricService: MetricService) {
     this.logger = new Logger('KafkaProducerService', { timestamp: true });
     this.producer = this.kafkaClient.producer({
       idempotent: true,
@@ -33,6 +34,7 @@ export class KafkaProducerService implements OnModuleInit, OnModuleDestroy {
   }
 
   async sendMessage(topic: string, message: SubmissionQueuedEvent) {
+    this.metricService.messageQueueConsumerProducedTotal.inc();
     await this.producer.send({
       topic,
       compression: CompressionTypes.GZIP,
