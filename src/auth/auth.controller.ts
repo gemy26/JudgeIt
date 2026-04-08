@@ -105,7 +105,7 @@ export class AuthController {
   @Public()
   @Get('/reset-password/verify')
   async validateResetToken(@Query('token') token: string) {
-    return this.authService.validateResetToken(token);
+    return this.authService.resetToken(token);
   }
 
   @Public()

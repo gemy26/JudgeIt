@@ -289,7 +289,7 @@ export class AuthService {
 
     this.logger.debug(`Reset token created for user: ${user.id}`);
 
-    const url = `http://${this.config.getOrThrow<string>('HOST')}/auth/reset-password/?token=${token}`;
+    const url = `http://${this.config.getOrThrow<string>('HOST')}/auth/reset-password/verify?token=${token}`;
 
     const resetPasswordDto: MailDto = {
       to: email,
@@ -324,7 +324,7 @@ export class AuthService {
     return { success: true, message: 'Password reset successfully' };
   }
 
-  async validateResetToken(token: string) {
+  private async validateResetToken(token: string) {
     this.logger.debug('Validating password reset token');
 
     const hashedToken = createHash('sha256').update(token).digest('hex');
@@ -354,7 +354,16 @@ export class AuthService {
     return { userId: tokenRecord.userId, tokenId: tokenRecord.id };
   }
 
-  generateResetToken() {
+  async resetToken(token: string): Promise<{ valid: boolean; token: string }> {
+    try {
+      await this.validateResetToken(token);
+      return { valid: true, token };
+    } catch {
+      return { valid: false, token };
+    }
+  }
+
+  private generateResetToken() {
     const token = randomBytes(32).toString('hex');
     const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
     return { token, hashedToken };
