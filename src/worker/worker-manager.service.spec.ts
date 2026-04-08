@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { KAFKA_CLIENT } from '../kafka/kafka.constants';
 import { ConfigService } from '@nestjs/config';
 import { JudgeService } from '../judge/judge.service';
+import { MetricService } from '../monitoring/metricService';
 
 describe('WorkerManagerService', () => {
   let service: WorkerManagerService;
@@ -25,6 +26,11 @@ describe('WorkerManagerService', () => {
 
   const mockJudgeService = {
     judgeSubmission: jest.fn().mockResolvedValue([]),
+  };
+
+  const mockMetricService = {
+    messageQueueConsumerErrorsTotal: { inc: jest.fn() },
+    messageQueueConsumerConsumedTotal: { inc: jest.fn() },
   };
 
   const buildMessage = (value: object | null, offset = '0') => ({
@@ -65,6 +71,10 @@ describe('WorkerManagerService', () => {
         {
           provide: JudgeService,
           useValue: mockJudgeService,
+        },
+        {
+          provide: MetricService,
+          useValue: mockMetricService,
         },
       ],
     }).compile();

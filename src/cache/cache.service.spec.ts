@@ -1,11 +1,18 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CacheService } from './cache.service';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { MetricService } from '../monitoring/metricService';
 
 const mockCacheManager = {
   get: jest.fn(),
   set: jest.fn(),
   del: jest.fn(),
+};
+
+const mockMetricService = {
+  cacheHits: { inc: jest.fn() },
+  cacheMiss: { inc: jest.fn() },
+  cacheHitDuration: { observe: jest.fn() },
 };
 
 describe('CacheService', () => {
@@ -18,6 +25,10 @@ describe('CacheService', () => {
         {
           provide: CACHE_MANAGER,
           useValue: mockCacheManager,
+        },
+        {
+          provide: MetricService,
+          useValue: mockMetricService,
         },
       ],
     }).compile();
