@@ -354,13 +354,9 @@ export class AuthService {
     return { userId: tokenRecord.userId, tokenId: tokenRecord.id };
   }
 
-  async resetToken(token: string): Promise<{ valid: boolean; token: string }> {
-    try {
-      await this.validateResetToken(token);
-      return { valid: true, token };
-    } catch {
-      return { valid: false, token };
-    }
+  async resetToken(token: string): Promise<{ token: string }> {
+    await this.validateResetToken(token);
+    return { token };
   }
 
   private generateResetToken() {
