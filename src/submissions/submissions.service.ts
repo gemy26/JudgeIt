@@ -18,12 +18,22 @@ export class SubmissionsService {
     return this.submissionsRepo.addSubmission(submissionDto, userId);
   }
 
-  async updateSubmission(submissionId: number, verdict: string) {
+  async updateSubmission(
+    submissionId: number,
+    verdict: string,
+    executionTime: number,
+    memoryUsed: number,
+  ) {
     this.logger.log(
-      `Updating submission ${submissionId} with verdict ${verdict}`,
+      `Updating submission ${submissionId} with verdict ${verdict} time=${executionTime} memory=${memoryUsed}`,
     );
 
-    return this.submissionsRepo.updateSubmission(submissionId, verdict);
+    return this.submissionsRepo.updateSubmission(
+      submissionId,
+      verdict,
+      executionTime,
+      memoryUsed,
+    );
   }
 
   async getAllSubmissions(

@@ -117,6 +117,7 @@ export class ExecutionService {
 
   private async destroyBox(boxId: number): Promise<void> {
     try {
+      this.logger.debug(`Destroying box ${boxId}`);
       await execAsync(`isolate --box-id=${boxId} --cleanup`);
     } catch {
       this.logger.warn(`Failed to cleanup box ${boxId}`);

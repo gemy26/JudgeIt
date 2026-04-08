@@ -67,6 +67,8 @@ export class JudgeService {
       `Verdicates submissionId=${submissionId} verdicates=[${verdicates.join(', ')}]`,
     );
 
+    let exectionTime = 0,
+      memoryUsed = 0;
     let finalVerdicate = 'ACC';
     for (const verdicate of verdicates) {
       if (verdicate !== 'ACC') {
@@ -79,11 +81,12 @@ export class JudgeService {
       `FINAL submissionId=${submissionId} verdict=${finalVerdicate}`,
     );
 
-    await this.submssionsService.updateSubmission(submissionId, finalVerdicate);
-    this.logger.debug(`Updated submission record submissionId=${submissionId}`);
-
     const submissionResults: SubmissionResult[] = [];
     for (let i = 0; i < verdicates.length; i++) {
+      const execution_time_ms = Math.round((results[i].time ?? 0) * 1000);
+      const memory_kb = results[i].memory ?? 0;
+      const memory_mb = +(memory_kb / 1024).toFixed(2);
+
       submissionResults.push({
         submissionId,
         verdict: verdicates[i],
@@ -92,8 +95,16 @@ export class JudgeService {
         testcaseName: testCases[i].name,
         createdAt: new Date(),
       });
+      exectionTime = Math.max(exectionTime, execution_time_ms);
+      memoryUsed = Math.max(memoryUsed, memory_mb);
     }
-
+    await this.submssionsService.updateSubmission(
+      submissionId,
+      finalVerdicate,
+      exectionTime,
+      memoryUsed,
+    );
+    this.logger.debug(`Updated submission record submissionId=${submissionId}`);
     await this.submssionsService.addSubmissionResults(submissionResults);
     this.logger.debug(
       `Stored ${submissionResults.length} result records for submissionId=${submissionId}`,

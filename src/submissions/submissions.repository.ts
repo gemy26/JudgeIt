@@ -25,7 +25,6 @@ export class SubmissionsRepository {
         `Problem #${submissionDto.problemId} not found`,
       );
     }
-
     return await this.prisma.submission.create({
       data: {
         user_id: userId,
@@ -40,13 +39,20 @@ export class SubmissionsRepository {
     });
   }
 
-  async updateSubmission(submissionId: number, verdict: string) {
+  async updateSubmission(
+    submissionId: number,
+    verdict: string,
+    executionTime: number,
+    memoryUsed: number,
+  ) {
     return this.prisma.submission.update({
       where: {
         id: submissionId,
       },
       data: {
         verdicate: verdict,
+        execution_time: executionTime,
+        memory_user: memoryUsed,
       },
     });
   }
