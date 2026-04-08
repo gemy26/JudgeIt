@@ -29,6 +29,13 @@ export class AtGuard extends AuthGuard('jwt') {
 
     const req = context.switchToHttp().getRequest();
     const hasToken = !!req.cookies?.Authentication;
+
+    const isMetric = req?.path === '/metrics';
+    if (isMetric) {
+      this.logger.debug(`[${route}] Metric route — skipping JWT validation`);
+      return true;
+    }
+
     if (!hasToken) {
       this.logger.warn(`[${route}] Missing Authentication cookie`);
     } else {
