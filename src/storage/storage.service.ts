@@ -5,12 +5,13 @@ import {
   GetObjectCommand,
 } from '@aws-sdk/client-s3';
 import { ConfigService } from '@nestjs/config';
+import { MetricService } from '../monitoring/metricService';
 
 @Injectable()
 export class StorageService {
   private logger: Logger;
   private client;
-  constructor(private config: ConfigService) {
+  constructor(private config: ConfigService, private metricService: MetricService) {
     this.logger = new Logger(StorageService.name, { timestamp: true });
     this.client = new S3Client({
       region: this.config.get<string>('S3_REGION')!,
@@ -39,6 +40,7 @@ export class StorageService {
     bucket: string,
     prefix: string,
   ): Promise<{ key: string; content: string }[]> {
+    const startTime = process.hrtime();
     const keys = (await this.listObjectKeys(bucket, prefix)).filter(
       (key) => !key.endsWith('/'),
     );
@@ -54,6 +56,9 @@ export class StorageService {
         return { key, content };
       }),
     );
+    const [seconds, nanoseconds] = process.hrtime(startTime);
+    const durationInSeconds = seconds + nanoseconds / 1e9;
+    this.metricService.storageServiceLatency.observe(durationInSeconds);
     return objectsData;
   }
 }

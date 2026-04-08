@@ -3,6 +3,7 @@ import { CacheService } from './cache.service';
 import { CacheModule } from '@nestjs/cache-manager';
 import KeyvRedis from '@keyv/redis';
 import { ConfigService } from '@nestjs/config';
+import { MonitoringModule } from '../monitoring/monitoring.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { ConfigService } from '@nestjs/config';
         };
       },
     }),
+    MonitoringModule,
   ],
   providers: [CacheService],
   exports: [CacheService],

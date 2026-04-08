@@ -1,19 +1,29 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
+import { MetricService } from '../monitoring/metricService';
 
 @Injectable()
 export class CacheService {
   private readonly logger = new Logger(CacheService.name, { timestamp: true });
   private readonly inFlight = new Map<string, Promise<unknown>>();
 
-  constructor(@Inject(CACHE_MANAGER) private readonly cache: Cache) {}
+  constructor(
+    @Inject(CACHE_MANAGER) private readonly cache: Cache,
+    private metricService: MetricService,
+  ) {}
 
   async get<T>(key: string): Promise<T | null> {
+    const startTime = process.hrtime();
     const value = (await this.cache.get<T>(key)) ?? null;
     if (value !== null) {
+      const [seconds, nanoseconds] = process.hrtime(startTime);
+      const durationInSeconds = seconds + nanoseconds / 1e9;
+      this.metricService.cacheHitDuration.observe(durationInSeconds);
+      this.metricService.cacheHits.inc();
       this.logger.debug(`HIT key=${key}`);
     } else {
+      this.metricService.cacheMiss.inc();
       this.logger.debug(`MISS key=${key}`);
     }
     return value;
